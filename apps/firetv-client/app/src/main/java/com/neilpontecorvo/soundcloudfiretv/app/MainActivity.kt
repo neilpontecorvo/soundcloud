@@ -3,16 +3,19 @@ package com.neilpontecorvo.soundcloudfiretv.app
 import android.graphics.Color
 import android.os.Bundle
 import android.text.InputType
+import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.webkit.WebView
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.neilpontecorvo.soundcloudfiretv.BuildConfig
@@ -309,7 +312,12 @@ class MainActivity : AppCompatActivity(),
         }
 
         contentFrame.addView(view)
-        view.post { view.findFocus()?.requestFocus() ?: view.requestFocus() }
+        view.post {
+            val focused = contentFrame.findFocus()
+            if (focused == null || focused == view || focused == contentFrame) {
+                view.requestFocus()
+            }
+        }
         requestContentFor(screen, authGateway.getCurrentState())
     }
 
@@ -669,7 +677,179 @@ class MainActivity : AppCompatActivity(),
             actions = diagnosticsModel.actions
         )
 
-        return screenRenderer.render(settingsModel)
+        return renderSettingsScreen(settingsModel)
+    }
+
+    private fun renderSettingsScreen(model: ScreenViewModel): View {
+        val scrollView = ScrollView(this).apply {
+            isFillViewport = true
+            isFocusable = false
+            isFocusableInTouchMode = false
+            descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+            isVerticalScrollBarEnabled = true
+            setBackgroundColor(0xFF050505.toInt())
+        }
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(12), dp(16), dp(24))
+            isFocusable = false
+            isFocusableInTouchMode = false
+        }
+        scrollView.addView(
+            root,
+            ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        root.addView(TextView(this).apply {
+            text = model.title
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(12) }
+        })
+
+        val actionGrid = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            isFocusable = false
+            isFocusableInTouchMode = false
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(16) }
+        }
+        root.addView(actionGrid)
+
+        val actionButtons = model.actions.map { action ->
+            buildSettingsActionButton(action)
+        }
+        applySettingsFocusGraph(actionButtons)
+
+        actionButtons.chunked(2).forEach { rowButtons ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.START
+                isFocusable = false
+                isFocusableInTouchMode = false
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = dp(10) }
+            }
+            rowButtons.forEach { row.addView(it) }
+            actionGrid.addView(row)
+        }
+
+        val body = TextView(this).apply {
+            id = R.id.panelBody
+            text = model.body
+            setTextColor(0xFF999999.toInt())
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            typeface = android.graphics.Typeface.MONOSPACE
+            setLineSpacing(dp(4).toFloat(), 1f)
+            setBackgroundColor(0xFF0D0D0D.toInt())
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+            isFocusable = false
+            isFocusableInTouchMode = false
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        root.addView(body)
+
+        scrollView.post {
+            actionButtons.firstOrNull()?.requestFocus()
+        }
+
+        return scrollView
+    }
+
+    private fun buildSettingsActionButton(action: ActionSpec): Button {
+        return Button(this).apply {
+            id = View.generateViewId()
+            text = action.label
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setBackgroundResource(R.drawable.tv_focusable_background)
+            setPadding(dp(16), 0, dp(16), 0)
+            isFocusable = true
+            isFocusableInTouchMode = true
+            isClickable = true
+            minWidth = dp(240)
+            minHeight = dp(48)
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
+                marginEnd = dp(10)
+            }
+
+            setOnClickListener {
+                dispatchSettingsAction(action)
+            }
+            setOnKeyListener { _, keyCode, event ->
+                val isSelect = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                    keyCode == KeyEvent.KEYCODE_ENTER ||
+                    keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+                if (!isSelect) {
+                    false
+                } else {
+                    if (event.action == KeyEvent.ACTION_UP) {
+                        performClick()
+                    }
+                    true
+                }
+            }
+
+            TvFocusStyler.apply(this, focusedScale = 1.06f, onFocusChanged = { hasFocus ->
+                if (hasFocus) {
+                    Log.d(TAG, "Settings focus: ${action.label}")
+                }
+            })
+        }
+    }
+
+    private fun applySettingsFocusGraph(buttons: List<Button>) {
+        val columns = 2
+        buttons.forEachIndexed { index, button ->
+            val row = index / columns
+            val col = index % columns
+            val leftIndex = index - 1
+            val rightIndex = index + 1
+            val upIndex = index - columns
+            val downIndex = index + columns
+
+            button.nextFocusLeftId = if (col > 0 && leftIndex >= 0) {
+                buttons[leftIndex].id
+            } else {
+                button.id
+            }
+            button.nextFocusRightId = if (col < columns - 1 && rightIndex < buttons.size && rightIndex / columns == row) {
+                buttons[rightIndex].id
+            } else {
+                button.id
+            }
+            button.nextFocusUpId = if (upIndex >= 0) {
+                buttons[upIndex].id
+            } else {
+                button.id
+            }
+            button.nextFocusDownId = if (downIndex < buttons.size) {
+                buttons[downIndex].id
+            } else {
+                button.id
+            }
+        }
+    }
+
+    private fun dispatchSettingsAction(action: ActionSpec) {
+        Log.i(TAG, "Settings action selected: ${action.label}")
+        action.onClick.invoke()
+        refreshSettingsBody(authGateway.getCurrentState())
     }
 
     private fun refreshSettingsBody(state: AuthSessionState) {
@@ -766,4 +946,8 @@ class MainActivity : AppCompatActivity(),
         val artist: String? = null,
         val errorMessage: String? = null
     )
+
+    companion object {
+        private const val TAG = "MainActivity"
+    }
 }
