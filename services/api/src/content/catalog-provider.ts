@@ -169,21 +169,27 @@ const normalizeMediaCard = (
   item: Record<string, unknown>,
   fallbackKind: MediaKind
 ): MediaCard => {
-  const user = isRecord(item.user) ? item.user : undefined;
-  const kind = readKind(item.kind, fallbackKind);
-  const title = readString(item.title) ?? readString(item.name) ?? 'Untitled';
-  const description = readString(item.description) ?? readString(item.genre);
+  const media = unwrapMediaItem(item);
+  const user = isRecord(media.user) ? media.user : undefined;
+  const kind = readKind(media.kind, fallbackKind);
+  const title = readString(media.title) ?? readString(media.name) ?? 'Untitled';
+  const description = readString(media.description) ?? readString(media.genre);
 
   return {
-    id: readId(item),
+    id: readId(media),
     kind,
     title,
     subtitle: description,
-    creatorName: readString(user?.username) ?? readString(user?.full_name) ?? readString(item.creatorName),
-    artworkUrl: readString(item.artwork_url) ?? readString(item.artworkUrl) ?? readString(user?.avatar_url) ?? null,
-    durationText: durationText(item.duration),
-    webUrl: readString(item.permalink_url) ?? readString(item.webUrl) ?? null
+    creatorName: readString(user?.username) ?? readString(user?.full_name) ?? readString(media.creatorName),
+    artworkUrl: readString(media.artwork_url) ?? readString(media.artworkUrl) ?? readString(user?.avatar_url) ?? null,
+    durationText: durationText(media.duration),
+    webUrl: readString(media.permalink_url) ?? readString(media.webUrl) ?? null
   };
+};
+
+const unwrapMediaItem = (item: Record<string, unknown>): Record<string, unknown> => {
+  const origin = item.origin;
+  return isRecord(origin) ? origin : item;
 };
 
 const readKind = (value: unknown, fallback: MediaKind): MediaKind => {
@@ -229,7 +235,7 @@ const localDebugItems: MediaCard[] = [
     creatorName: 'Private Test Session',
     artworkUrl: null,
     durationText: '1:00',
-    webUrl: null
+    webUrl: 'https://soundcloud.com/forss/flickermood'
   },
   {
     id: 'local-debug-playlist',
@@ -239,7 +245,7 @@ const localDebugItems: MediaCard[] = [
     creatorName: 'Private Test Session',
     artworkUrl: null,
     durationText: null,
-    webUrl: null
+    webUrl: 'https://soundcloud.com/forss/flickermood'
   }
 ];
 

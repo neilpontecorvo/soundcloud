@@ -161,6 +161,11 @@ class MainActivity : AppCompatActivity(),
     // ContentCardSelectionListener implementation
     override fun onCardSelected(card: ContentCardSpec) {
         selectedCard = card
+        if (!card.webUrl.isNullOrBlank()) {
+            navigateTo(AppScreen.PLAYER)
+            return
+        }
+
         when (card.eyebrow.lowercase()) {
             "playlist", "station", "album" -> showCollectionDetail(card)
             else -> navigateTo(AppScreen.PLAYER)
@@ -601,7 +606,14 @@ class MainActivity : AppCompatActivity(),
         ))
 
         val contentUrl = selectedCard?.webUrl
-        if (selectedCard != null && contentUrl.isNullOrBlank()) {
+        if (selectedCard == null) {
+            updatePlayerUi(
+                playerUiState.copy(
+                    isLoading = false,
+                    errorMessage = "Choose a track from Home, Search, or Library."
+                )
+            )
+        } else if (contentUrl.isNullOrBlank()) {
             updatePlayerUi(
                 playerUiState.copy(
                     isLoading = false,

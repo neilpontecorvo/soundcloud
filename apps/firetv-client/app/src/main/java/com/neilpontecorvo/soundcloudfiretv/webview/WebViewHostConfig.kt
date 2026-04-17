@@ -118,8 +118,11 @@ data class WebViewHostConfig(
                 "m.soundcloud.com",
                 "w.soundcloud.com",
                 "api-widget.soundcloud.com",
+                "api-v2.soundcloud.com",
                 "sndcdn.com",
                 "a-v2.sndcdn.com",
+                "cf-media.sndcdn.com",
+                "cf-hls-media.sndcdn.com",
                 "i1.sndcdn.com",
                 "widget.sndcdn.com"
             ),
