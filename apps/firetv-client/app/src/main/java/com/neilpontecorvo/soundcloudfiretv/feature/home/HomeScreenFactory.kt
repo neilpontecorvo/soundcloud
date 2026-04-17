@@ -5,7 +5,7 @@ import com.neilpontecorvo.soundcloudfiretv.core.navigation.ScreenViewModel
 
 object HomeScreenFactory {
     fun create(
-        body: String = "Loading feed from backend...",
+        body: String = "Loading home...",
         sections: List<ContentSectionSpec> = emptyList()
     ): ScreenViewModel = ScreenViewModel(
         title = "Home",

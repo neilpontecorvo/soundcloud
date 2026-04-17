@@ -15,29 +15,29 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:textColor="@android:color/white"
-            android:textSize="20sp"
+            android:textSize="17sp"
             android:textStyle="bold" />
 
         <TextView
             android:id="@+id/panelBody"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:textColor="#D0D0D0"
-            android:textSize="14sp" />
+            android:layout_marginTop="3dp"
+            android:textColor="#B8B8B8"
+            android:textSize="12sp" />
 
         <LinearLayout
             android:id="@+id/panelContentSections"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="6dp"
             android:orientation="vertical" />
 
         <LinearLayout
             android:id="@+id/panelActions"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="10dp"
             android:orientation="vertical" />
     </LinearLayout>
 </ScrollView>

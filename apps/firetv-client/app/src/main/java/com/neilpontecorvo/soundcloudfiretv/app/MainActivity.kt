@@ -3,6 +3,7 @@ package com.neilpontecorvo.soundcloudfiretv.app
 import android.graphics.Color
 import android.os.Bundle
 import android.util.TypedValue
+import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.webkit.WebView
@@ -218,7 +219,7 @@ class MainActivity : AppCompatActivity(),
     private fun bindNavButton(buttonId: Int, target: AppScreen) {
         findViewById<Button>(buttonId).apply {
             setOnClickListener { navigateTo(target) }
-            TvFocusStyler.apply(this, focusedScale = 1.06f)
+            TvFocusStyler.apply(this, focusedScale = 1.1f)
         }
     }
 
@@ -257,6 +258,7 @@ class MainActivity : AppCompatActivity(),
     private fun buildPlayerView(): View {
         playerWebView?.let(playerBridge::detachFromWebView)
         val webView = WebView(this)
+        webView.setBackgroundColor(Color.BLACK)
         webHost.configure(webView)
         playerBridge.attachToWebView(webView)
         playerWebView = webView
@@ -264,12 +266,16 @@ class MainActivity : AppCompatActivity(),
         val playerRoot = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.BLACK)
+            setPadding(dp(16), dp(14), dp(16), dp(14))
 
-            addView(buildPlayerHeader())
-            addView(webView, LinearLayout.LayoutParams(
+            addView(buildPlayerHeader(), LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 0
             ).apply { weight = 1f })
+            addView(webView, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(164)
+            ))
         }
 
         updatePlayerUi(PlayerUiState(isLoading = true))
@@ -280,30 +286,38 @@ class MainActivity : AppCompatActivity(),
     private fun buildPlayerHeader(): View {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(12), dp(16), dp(12))
-            setBackgroundColor(0xFF101010.toInt())
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(24), dp(18), dp(24), dp(18))
+            setBackgroundColor(0xFF0E0E0E.toInt())
 
             playerStateView = TextView(this@MainActivity).apply {
                 setTextColor(0xFF5CE1E6.toInt())
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
                 text = "Loading player"
+                maxLines = 1
             }
             playerTrackView = TextView(this@MainActivity).apply {
                 setTextColor(Color.WHITE)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 34f)
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
                 text = "Preparing playback"
-                maxLines = 1
+                maxLines = 2
             }
             playerErrorView = TextView(this@MainActivity).apply {
                 setTextColor(0xFFFFD166.toInt())
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
                 text = ""
                 maxLines = 2
             }
 
             addView(playerStateView)
-            addView(playerTrackView)
+            addView(playerTrackView, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = dp(8)
+                bottomMargin = dp(8)
+            })
             addView(playerErrorView)
         }
     }
@@ -373,7 +387,7 @@ class MainActivity : AppCompatActivity(),
         val sessionId = state.sessionId
         if (sessionId == null) {
             if (screen == AppScreen.HOME || screen == AppScreen.SEARCH || screen == AppScreen.LIBRARY) {
-                updatePanelBody("Waiting for backend session bootstrap...")
+                updatePanelBody("Starting session...")
             }
             return
         }
@@ -395,7 +409,7 @@ class MainActivity : AppCompatActivity(),
     private fun updateContentBody(screen: AppScreen, state: ContentLoadState, emptyMessage: String) {
         if (currentScreen != screen) return
         when (state) {
-            ContentLoadState.Loading -> "Loading ${screen.title.lowercase()} from backend..."
+            ContentLoadState.Loading -> "Loading ${screen.title.lowercase()}..."
             ContentLoadState.Empty -> emptyMessage
             is ContentLoadState.Success -> {
                 renderContentScreen(screen, state)

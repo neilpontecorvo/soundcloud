@@ -241,16 +241,15 @@ class WebPlayerHostController(
                   box-sizing: border-box;
                   width: 100%;
                   height: 100%;
-                  padding: 20px;
-                  background: linear-gradient(180deg, #101010 0%, #050505 100%);
+                  padding: 0;
+                  background: #050505;
                 }
                 .frame {
                   width: 100%;
                   height: 100%;
-                  border: 1px solid #303030;
                   border-radius: 8px;
                   overflow: hidden;
-                  background: #111;
+                  background: #050505;
                 }
                 iframe {
                   display: block;

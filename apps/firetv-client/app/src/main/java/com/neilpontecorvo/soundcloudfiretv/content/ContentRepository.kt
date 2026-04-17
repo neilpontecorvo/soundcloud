@@ -28,7 +28,7 @@ class ContentRepository(private val apiClient: DeviceSessionApiClient) {
 
     fun loadFeed(sessionId: String, callback: (ContentLoadState) -> Unit) {
         runRequest(callback) {
-            apiClient.getFeed(sessionId).toLoadState("Feed")
+            apiClient.getFeed(sessionId).toLoadState()
         }
     }
 
@@ -63,10 +63,10 @@ class ContentRepository(private val apiClient: DeviceSessionApiClient) {
         }
     }
 
-    private fun FeedResponseDto.toLoadState(label: String): ContentLoadState {
+    private fun FeedResponseDto.toLoadState(): ContentLoadState {
         if (items.isEmpty()) return ContentLoadState.Empty
         return ContentLoadState.Success(
-            body = label,
+            body = "",
             sections = listOf(ContentSectionSpec("Latest", items.toContentCards()))
         )
     }
@@ -82,7 +82,7 @@ class ContentRepository(private val apiClient: DeviceSessionApiClient) {
 
         val title = if (query.isBlank()) "Search" else "Results for \"$query\""
         return ContentLoadState.Success(
-            body = title,
+            body = if (query.isBlank()) "" else title,
             sections = listOf(ContentSectionSpec("Results", items.toContentCards()))
         )
     }
@@ -90,7 +90,7 @@ class ContentRepository(private val apiClient: DeviceSessionApiClient) {
     private fun LibraryResponseDto.toLoadState(): ContentLoadState {
         if (sections.all { it.items.isEmpty() }) return ContentLoadState.Empty
         return ContentLoadState.Success(
-            body = "Library",
+            body = "",
             sections = sections
                 .filter { it.items.isNotEmpty() }
                 .map { section ->
@@ -104,7 +104,7 @@ class ContentRepository(private val apiClient: DeviceSessionApiClient) {
             val subtitle = listOfNotNull(item.creatorName, item.subtitle)
                 .filter { it.isNotBlank() }
                 .joinToString(separator = " - ")
-                .ifBlank { "Backend item" }
+                .ifBlank { "Ready to play" }
             ContentCardSpec(
                 id = item.id,
                 eyebrow = item.kind,

@@ -5,6 +5,7 @@ import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.Button
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.neilpontecorvo.soundcloudfiretv.R
@@ -36,7 +37,10 @@ class ScreenRenderer(private val context: Context) {
     fun render(model: ScreenViewModel): View {
         val root = LayoutInflater.from(context).inflate(R.layout.view_panel, null)
         root.findViewById<TextView>(R.id.panelTitle).text = model.title
-        root.findViewById<TextView>(R.id.panelBody).text = model.body
+        root.findViewById<TextView>(R.id.panelBody).apply {
+            text = model.body
+            visibility = if (model.body.isBlank()) View.GONE else View.VISIBLE
+        }
         var firstFocusable: View? = null
 
         val contentContainer = root.findViewById<LinearLayout>(R.id.panelContentSections)
@@ -50,19 +54,35 @@ class ScreenRenderer(private val context: Context) {
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 ).apply {
-                    topMargin = dp(12)
-                    bottomMargin = dp(8)
+                    topMargin = dp(8)
+                    bottomMargin = dp(6)
                 }
             }
             contentContainer.addView(sectionTitle)
 
+            val rail = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                clipToPadding = false
+                setPadding(dp(4), dp(4), dp(18), dp(10))
+            }
+            val railScroll = HorizontalScrollView(context).apply {
+                isFillViewport = true
+                isHorizontalScrollBarEnabled = false
+                clipToPadding = false
+                addView(rail)
+            }
+
             val cards = mutableListOf<View>()
             section.cards.forEach { card ->
                 val cardView = buildContentCard(card, cards)
-                if (firstFocusable == null) firstFocusable = cardView
+                if (firstFocusable == null) {
+                    firstFocusable = cardView
+                    cardView.isSelected = true
+                }
                 cards.add(cardView)
-                contentContainer.addView(cardView)
+                rail.addView(cardView)
             }
+            contentContainer.addView(railScroll)
         }
 
         val actionsContainer = root.findViewById<LinearLayout>(R.id.panelActions)
@@ -76,8 +96,8 @@ class ScreenRenderer(private val context: Context) {
                 setBackgroundResource(R.drawable.tv_focusable_background)
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
-                    dp(48)
-                ).apply { bottomMargin = dp(8) }
+                    dp(42)
+                ).apply { bottomMargin = dp(6) }
             }
             TvFocusStyler.apply(button, focusedScale = 1.05f)
             if (firstFocusable == null) firstFocusable = button
@@ -98,11 +118,11 @@ class ScreenRenderer(private val context: Context) {
             isFocusableInTouchMode = true
             isClickable = true
             setBackgroundResource(R.drawable.tv_content_card_background)
-            setPadding(dp(14), dp(10), dp(14), dp(10))
+            setPadding(dp(14), dp(12), dp(14), dp(12))
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(8) }
+                dp(292),
+                dp(136)
+            ).apply { rightMargin = dp(10) }
         }
 
         val eyebrow = TextView(context).apply {
@@ -116,7 +136,7 @@ class ScreenRenderer(private val context: Context) {
             setTextColor(context.getColor(android.R.color.white))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
             setTypeface(typeface, android.graphics.Typeface.BOLD)
-            maxLines = 1
+            maxLines = 2
         }
 
         val subtitle = TextView(context).apply {
@@ -140,7 +160,7 @@ class ScreenRenderer(private val context: Context) {
             cardRoot.addView(metadata)
         }
 
-        TvFocusStyler.apply(cardRoot, focusedScale = 1.035f)
+        TvFocusStyler.apply(cardRoot, focusedScale = 1.065f)
         cardRoot.setOnClickListener {
             siblingCards.forEach { it.isSelected = false }
             cardRoot.isSelected = true
