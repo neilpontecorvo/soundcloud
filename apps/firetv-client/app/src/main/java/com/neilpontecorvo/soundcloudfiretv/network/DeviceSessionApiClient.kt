@@ -23,6 +23,42 @@ data class SessionDto(
     val accessTokenExpiresAtIso: String?
 )
 
+data class MediaCardDto(
+    val id: String,
+    val kind: String,
+    val title: String,
+    val subtitle: String?,
+    val creatorName: String?,
+    val artworkUrl: String?,
+    val durationText: String?,
+    val webUrl: String?
+)
+
+data class FeedResponseDto(
+    val generatedAtIso: String?,
+    val cacheStatus: String?,
+    val items: List<MediaCardDto>
+)
+
+data class SearchResponseDto(
+    val generatedAtIso: String?,
+    val cacheStatus: String?,
+    val query: String,
+    val items: List<MediaCardDto>
+)
+
+data class LibrarySectionDto(
+    val id: String,
+    val title: String,
+    val items: List<MediaCardDto>
+)
+
+data class LibraryResponseDto(
+    val generatedAtIso: String?,
+    val cacheStatus: String?,
+    val sections: List<LibrarySectionDto>
+)
+
 class ApiException(
     val statusCode: Int,
     private val errorCode: String,
@@ -68,12 +104,35 @@ class DeviceSessionApiClient(private val baseUrl: String) {
         return request("POST", "/v1/auth/refresh", body).toSessionDto()
     }
 
-    private fun request(method: String, path: String, body: JSONObject?): JSONObject {
+    fun getFeed(sessionId: String): FeedResponseDto {
+        return request("GET", "/v1/feed", null, sessionHeaders(sessionId)).toFeedResponseDto()
+    }
+
+    fun search(sessionId: String, query: String): SearchResponseDto {
+        val path = if (query.isBlank()) {
+            "/v1/search"
+        } else {
+            "/v1/search?q=${query.urlEncode()}"
+        }
+        return request("GET", path, null, sessionHeaders(sessionId)).toSearchResponseDto()
+    }
+
+    fun getLibrary(sessionId: String): LibraryResponseDto {
+        return request("GET", "/v1/library", null, sessionHeaders(sessionId)).toLibraryResponseDto()
+    }
+
+    private fun request(
+        method: String,
+        path: String,
+        body: JSONObject?,
+        headers: Map<String, String> = emptyMap()
+    ): JSONObject {
         val connection = URL(baseUrl.trimEnd('/') + path).openConnection() as HttpURLConnection
         connection.requestMethod = method
         connection.connectTimeout = 5000
         connection.readTimeout = 5000
         connection.setRequestProperty("Accept", "application/json")
+        headers.forEach { (name, value) -> connection.setRequestProperty(name, value) }
 
         if (body != null) {
             connection.doOutput = true
@@ -120,10 +179,68 @@ class DeviceSessionApiClient(private val baseUrl: String) {
         accessTokenExpiresAtIso = optNullableString("accessTokenExpiresAtIso")
     )
 
+    private fun JSONObject.toFeedResponseDto(): FeedResponseDto = FeedResponseDto(
+        generatedAtIso = optNullableString("generatedAtIso"),
+        cacheStatus = optNullableString("cacheStatus"),
+        items = optJSONArray("items").toMediaCards()
+    )
+
+    private fun JSONObject.toSearchResponseDto(): SearchResponseDto = SearchResponseDto(
+        generatedAtIso = optNullableString("generatedAtIso"),
+        cacheStatus = optNullableString("cacheStatus"),
+        query = optString("query"),
+        items = optJSONArray("items").toMediaCards()
+    )
+
+    private fun JSONObject.toLibraryResponseDto(): LibraryResponseDto {
+        val sectionsJson = optJSONArray("sections")
+        val sections = mutableListOf<LibrarySectionDto>()
+        for (index in 0 until (sectionsJson?.length() ?: 0)) {
+            val section = sectionsJson?.optJSONObject(index) ?: continue
+            sections.add(
+                LibrarySectionDto(
+                    id = section.optString("id"),
+                    title = section.optString("title"),
+                    items = section.optJSONArray("items").toMediaCards()
+                )
+            )
+        }
+        return LibraryResponseDto(
+            generatedAtIso = optNullableString("generatedAtIso"),
+            cacheStatus = optNullableString("cacheStatus"),
+            sections = sections
+        )
+    }
+
+    private fun org.json.JSONArray?.toMediaCards(): List<MediaCardDto> {
+        val items = mutableListOf<MediaCardDto>()
+        if (this == null) return items
+
+        for (index in 0 until length()) {
+            val item = optJSONObject(index) ?: continue
+            items.add(
+                MediaCardDto(
+                    id = item.optString("id"),
+                    kind = item.optString("kind"),
+                    title = item.optString("title"),
+                    subtitle = item.optNullableString("subtitle"),
+                    creatorName = item.optNullableString("creatorName"),
+                    artworkUrl = item.optNullableString("artworkUrl"),
+                    durationText = item.optNullableString("durationText"),
+                    webUrl = item.optNullableString("webUrl")
+                )
+            )
+        }
+
+        return items
+    }
+
     private fun JSONObject.optNullableString(name: String): String? {
         if (!has(name) || isNull(name)) return null
         return optString(name).takeIf { it.isNotBlank() }
     }
+
+    private fun sessionHeaders(sessionId: String): Map<String, String> = mapOf("X-Session-Id" to sessionId)
 
     private fun String.urlEncode(): String = URLEncoder.encode(this, "UTF-8")
 }

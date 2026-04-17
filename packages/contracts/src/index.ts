@@ -38,6 +38,50 @@ export interface ApiError {
   status?: SessionStatus;
 }
 
+export type CacheStatus = 'hit' | 'miss' | 'bypass';
+export type MediaKind = 'track' | 'playlist' | 'station';
+
+export interface MediaCard {
+  id: string;
+  kind: MediaKind;
+  title: string;
+  subtitle?: string;
+  creatorName?: string;
+  artworkUrl?: string | null;
+  durationText?: string | null;
+  webUrl?: string | null;
+}
+
+export interface FeedResponse {
+  generatedAtIso: string;
+  cacheStatus?: CacheStatus;
+  items: MediaCard[];
+}
+
+export interface SearchRequest {
+  query?: string;
+  limit?: number;
+}
+
+export interface SearchResponse {
+  generatedAtIso: string;
+  cacheStatus?: CacheStatus;
+  query: string;
+  items: MediaCard[];
+}
+
+export interface LibrarySection {
+  id: string;
+  title: string;
+  items: MediaCard[];
+}
+
+export interface LibraryResponse {
+  generatedAtIso: string;
+  cacheStatus?: CacheStatus;
+  sections: LibrarySection[];
+}
+
 export interface PlayerCommand {
   type: 'play_pause' | 'next' | 'previous';
 }

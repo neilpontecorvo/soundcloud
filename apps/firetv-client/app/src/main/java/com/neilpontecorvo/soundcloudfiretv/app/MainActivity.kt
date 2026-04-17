@@ -12,6 +12,8 @@ import com.neilpontecorvo.soundcloudfiretv.BuildConfig
 import com.neilpontecorvo.soundcloudfiretv.R
 import com.neilpontecorvo.soundcloudfiretv.auth.ApiBackedAuthGateway
 import com.neilpontecorvo.soundcloudfiretv.auth.AuthSessionState
+import com.neilpontecorvo.soundcloudfiretv.content.ContentLoadState
+import com.neilpontecorvo.soundcloudfiretv.content.ContentRepository
 import com.neilpontecorvo.soundcloudfiretv.core.input.RemoteAction
 import com.neilpontecorvo.soundcloudfiretv.core.input.RemoteInputHandler
 import com.neilpontecorvo.soundcloudfiretv.core.navigation.AppScreen
@@ -32,10 +34,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var contentFrame: FrameLayout
     private lateinit var focusCoordinator: FocusCoordinator
     private lateinit var screenRenderer: ScreenRenderer
+    private lateinit var apiClient: DeviceSessionApiClient
     private lateinit var authGateway: ApiBackedAuthGateway
+    private lateinit var contentRepository: ContentRepository
     private val webHost = WebPlayerHostController()
     private val authStateListener: (AuthSessionState) -> Unit = { state ->
         refreshSettingsBody(state)
+        refreshContentForCurrentScreen(state)
     }
 
     private var currentScreen: AppScreen = AppScreen.HOME
@@ -49,11 +54,13 @@ class MainActivity : AppCompatActivity() {
         contentFrame = findViewById(R.id.contentFrame)
         focusCoordinator = FocusCoordinator(this)
         screenRenderer = ScreenRenderer(this)
+        apiClient = DeviceSessionApiClient(BuildConfig.API_BASE_URL)
         authGateway = ApiBackedAuthGateway(
-            apiClient = DeviceSessionApiClient(BuildConfig.API_BASE_URL),
+            apiClient = apiClient,
             deviceName = android.os.Build.MODEL.ifBlank { "Fire TV" },
             appVersion = BuildConfig.VERSION_NAME
         )
+        contentRepository = ContentRepository(apiClient)
         authGateway.addListener(authStateListener)
 
         bindNavButton(R.id.btnHome, AppScreen.HOME)
@@ -69,6 +76,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         authGateway.removeListener(authStateListener)
         authGateway.shutdown()
+        contentRepository.shutdown()
         super.onDestroy()
     }
 
@@ -117,6 +125,7 @@ class MainActivity : AppCompatActivity() {
 
         contentFrame.addView(view)
         view.post { view.findFocus()?.requestFocus() ?: view.requestFocus() }
+        requestContentFor(screen, authGateway.getCurrentState())
     }
 
     private fun buildPlayerView(): View {
@@ -156,6 +165,50 @@ class MainActivity : AppCompatActivity() {
     private fun refreshSettingsBody(state: AuthSessionState) {
         if (currentScreen != AppScreen.SETTINGS) return
         contentFrame.findViewById<TextView>(R.id.panelBody)?.text = buildDiagnosticsBody(state)
+    }
+
+    private fun refreshContentForCurrentScreen(state: AuthSessionState) {
+        if (currentScreen == AppScreen.HOME || currentScreen == AppScreen.SEARCH || currentScreen == AppScreen.LIBRARY) {
+            requestContentFor(currentScreen, state)
+        }
+    }
+
+    private fun requestContentFor(screen: AppScreen, state: AuthSessionState) {
+        val sessionId = state.sessionId
+        if (sessionId == null) {
+            if (screen == AppScreen.HOME || screen == AppScreen.SEARCH || screen == AppScreen.LIBRARY) {
+                updatePanelBody("Waiting for backend session bootstrap...")
+            }
+            return
+        }
+
+        when (screen) {
+            AppScreen.HOME -> contentRepository.loadFeed(sessionId) { nextState ->
+                updateContentBody(AppScreen.HOME, nextState, "Feed is empty.")
+            }
+            AppScreen.SEARCH -> contentRepository.search(sessionId, "") { nextState ->
+                updateContentBody(AppScreen.SEARCH, nextState, "Search returned no results.")
+            }
+            AppScreen.LIBRARY -> contentRepository.loadLibrary(sessionId) { nextState ->
+                updateContentBody(AppScreen.LIBRARY, nextState, "Library is empty.")
+            }
+            else -> Unit
+        }
+    }
+
+    private fun updateContentBody(screen: AppScreen, state: ContentLoadState, emptyMessage: String) {
+        if (currentScreen != screen) return
+        val body = when (state) {
+            ContentLoadState.Loading -> "Loading ${screen.title.lowercase()} from backend..."
+            ContentLoadState.Empty -> emptyMessage
+            is ContentLoadState.Success -> state.body
+            is ContentLoadState.Error -> "Unable to load ${screen.title.lowercase()}.\n${state.message}"
+        }
+        updatePanelBody(body)
+    }
+
+    private fun updatePanelBody(body: String) {
+        contentFrame.findViewById<TextView>(R.id.panelBody)?.text = body
     }
 
     private fun buildDiagnosticsBody(state: AuthSessionState): String {

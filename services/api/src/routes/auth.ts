@@ -1,36 +1,19 @@
 import { Request, Response, Router } from 'express';
-import { randomUUID } from 'node:crypto';
+import {
+  createDeviceSession,
+  DeviceSession,
+  getDeviceSession,
+  refreshExpiry,
+  toSessionResponse
+} from '../session/session-store.js';
 
 export const authRouter = Router();
 
-type SessionStatus = 'awaiting_auth' | 'authenticated' | 'expired' | 'error';
-
-interface DeviceSession {
-  sessionId: string;
-  status: SessionStatus;
-  deviceName?: string;
-  appVersion?: string;
-  createdAtIso: string;
-  expiresAtIso: string;
-  authenticatedAtIso?: string;
-  accessTokenExpiresAtIso?: string;
-}
-
-const SESSION_TTL_MS = 10 * 60 * 1000;
-const sessions = new Map<string, DeviceSession>();
-
 authRouter.post('/device/bootstrap', (req: Request, res: Response) => {
-  const now = new Date();
-  const session: DeviceSession = {
-    sessionId: randomUUID(),
-    status: 'awaiting_auth',
+  const session = createDeviceSession({
     deviceName: typeof req.body?.deviceName === 'string' ? req.body.deviceName : undefined,
-    appVersion: typeof req.body?.appVersion === 'string' ? req.body.appVersion : undefined,
-    createdAtIso: now.toISOString(),
-    expiresAtIso: new Date(now.getTime() + SESSION_TTL_MS).toISOString()
-  };
-
-  sessions.set(session.sessionId, session);
+    appVersion: typeof req.body?.appVersion === 'string' ? req.body.appVersion : undefined
+  });
 
   res.status(201).json({
     sessionId: session.sessionId,
@@ -84,7 +67,7 @@ const findSession = (sessionId: unknown, res: Response): DeviceSession | undefin
     return undefined;
   }
 
-  const session = sessions.get(sessionId);
+  const session = getDeviceSession(sessionId);
   if (!session) {
     res.status(404).json({
       error: 'session_not_found',
@@ -95,18 +78,3 @@ const findSession = (sessionId: unknown, res: Response): DeviceSession | undefin
 
   return session;
 };
-
-const refreshExpiry = (session: DeviceSession): DeviceSession => {
-  if (session.status !== 'authenticated' && Date.parse(session.expiresAtIso) <= Date.now()) {
-    session.status = 'expired';
-  }
-  return session;
-};
-
-const toSessionResponse = (session: DeviceSession) => ({
-  sessionId: session.sessionId,
-  status: session.status,
-  expiresAtIso: session.expiresAtIso,
-  authenticatedAtIso: session.authenticatedAtIso ?? null,
-  accessTokenExpiresAtIso: session.accessTokenExpiresAtIso ?? null
-});
