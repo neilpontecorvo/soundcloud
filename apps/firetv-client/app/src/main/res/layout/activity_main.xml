@@ -5,14 +5,14 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="@android:color/black"
-    android:padding="32dp">
+    android:padding="20dp">
 
     <TextView
         android:id="@+id/screenTitle"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:textColor="@android:color/white"
-        android:textSize="30sp"
+        android:textSize="22sp"
         android:textStyle="bold"
         android:text="Private Cloud TV" />
 
@@ -20,7 +20,7 @@
         android:id="@+id/navRow"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="20dp"
+        android:layout_marginTop="12dp"
         android:orientation="horizontal">
 
         <Button
@@ -53,9 +53,9 @@
         android:id="@+id/contentFrame"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_marginTop="24dp"
+        android:layout_marginTop="14dp"
         android:layout_weight="1"
         android:background="#121212"
-        android:padding="24dp" />
+        android:padding="16dp" />
 
 </LinearLayout>

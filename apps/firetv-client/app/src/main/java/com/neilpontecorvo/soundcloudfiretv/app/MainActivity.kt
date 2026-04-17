@@ -19,6 +19,7 @@ import com.neilpontecorvo.soundcloudfiretv.core.input.RemoteInputHandler
 import com.neilpontecorvo.soundcloudfiretv.core.navigation.AppScreen
 import com.neilpontecorvo.soundcloudfiretv.core.navigation.FocusCoordinator
 import com.neilpontecorvo.soundcloudfiretv.core.navigation.ScreenRenderer
+import com.neilpontecorvo.soundcloudfiretv.core.navigation.TvFocusStyler
 import com.neilpontecorvo.soundcloudfiretv.feature.diagnostics.DiagnosticsScreenFactory
 import com.neilpontecorvo.soundcloudfiretv.feature.home.HomeScreenFactory
 import com.neilpontecorvo.soundcloudfiretv.feature.library.LibraryScreenFactory
@@ -160,11 +161,15 @@ class MainActivity : AppCompatActivity(), HardenedWebViewClient.NavigationListen
     }
 
     private fun bindNavButton(buttonId: Int, target: AppScreen) {
-        findViewById<Button>(buttonId).setOnClickListener { navigateTo(target) }
+        findViewById<Button>(buttonId).apply {
+            setOnClickListener { navigateTo(target) }
+            TvFocusStyler.apply(this, focusedScale = 1.06f)
+        }
     }
 
     private fun navigateTo(screen: AppScreen) {
         currentScreen = screen
+        updateNavSelection()
         titleView.text = "Private Cloud TV \u2022 ${screen.title}"
         contentFrame.removeAllViews()
         playerWebView?.let { contentFrame.removeView(it) }
@@ -180,6 +185,18 @@ class MainActivity : AppCompatActivity(), HardenedWebViewClient.NavigationListen
         contentFrame.addView(view)
         view.post { view.findFocus()?.requestFocus() ?: view.requestFocus() }
         requestContentFor(screen, authGateway.getCurrentState())
+    }
+
+    private fun updateNavSelection() {
+        listOf(
+            R.id.btnHome to AppScreen.HOME,
+            R.id.btnSearch to AppScreen.SEARCH,
+            R.id.btnLibrary to AppScreen.LIBRARY,
+            R.id.btnPlayer to AppScreen.PLAYER,
+            R.id.btnSettings to AppScreen.SETTINGS
+        ).forEach { (buttonId, screen) ->
+            findViewById<Button>(buttonId).isSelected = currentScreen == screen
+        }
     }
 
     private fun buildPlayerView(): View {
@@ -258,13 +275,28 @@ class MainActivity : AppCompatActivity(), HardenedWebViewClient.NavigationListen
 
     private fun updateContentBody(screen: AppScreen, state: ContentLoadState, emptyMessage: String) {
         if (currentScreen != screen) return
-        val body = when (state) {
+        when (state) {
             ContentLoadState.Loading -> "Loading ${screen.title.lowercase()} from backend..."
             ContentLoadState.Empty -> emptyMessage
-            is ContentLoadState.Success -> state.body
+            is ContentLoadState.Success -> {
+                renderContentScreen(screen, state)
+                return
+            }
             is ContentLoadState.Error -> "Unable to load ${screen.title.lowercase()}.\n${state.message}"
+        }.also { body ->
+            updatePanelBody(body)
         }
-        updatePanelBody(body)
+    }
+
+    private fun renderContentScreen(screen: AppScreen, state: ContentLoadState.Success) {
+        val model = when (screen) {
+            AppScreen.HOME -> HomeScreenFactory.create(state.body, state.sections)
+            AppScreen.SEARCH -> SearchScreenFactory.create(state.body, state.sections)
+            AppScreen.LIBRARY -> LibraryScreenFactory.create(state.body, state.sections)
+            else -> return
+        }
+        contentFrame.removeAllViews()
+        contentFrame.addView(screenRenderer.render(model))
     }
 
     private fun updatePanelBody(body: String) {

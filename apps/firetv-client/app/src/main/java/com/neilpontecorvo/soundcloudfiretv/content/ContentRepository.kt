@@ -2,6 +2,8 @@ package com.neilpontecorvo.soundcloudfiretv.content
 
 import android.os.Handler
 import android.os.Looper
+import com.neilpontecorvo.soundcloudfiretv.core.navigation.ContentCardSpec
+import com.neilpontecorvo.soundcloudfiretv.core.navigation.ContentSectionSpec
 import com.neilpontecorvo.soundcloudfiretv.network.DeviceSessionApiClient
 import com.neilpontecorvo.soundcloudfiretv.network.FeedResponseDto
 import com.neilpontecorvo.soundcloudfiretv.network.LibraryResponseDto
@@ -12,7 +14,10 @@ import java.util.concurrent.Executors
 sealed class ContentLoadState {
     data object Loading : ContentLoadState()
     data object Empty : ContentLoadState()
-    data class Success(val body: String) : ContentLoadState()
+    data class Success(
+        val body: String,
+        val sections: List<ContentSectionSpec>
+    ) : ContentLoadState()
     data class Error(val message: String) : ContentLoadState()
 }
 
@@ -63,9 +68,9 @@ class ContentRepository(private val apiClient: DeviceSessionApiClient) {
         return ContentLoadState.Success(
             listOfNotNull(
                 "$label loaded from backend",
-                metadataLine(generatedAtIso, cacheStatus),
-                items.toDisplayLines()
-            ).joinToString(separator = "\n\n")
+                metadataLine(generatedAtIso, cacheStatus)
+            ).joinToString(separator = "\n"),
+            sections = listOf(ContentSectionSpec("Latest", items.toContentCards()))
         )
     }
 
@@ -76,7 +81,8 @@ class ContentRepository(private val apiClient: DeviceSessionApiClient) {
                 listOfNotNull(
                     "No backend results for $label.",
                     metadataLine(generatedAtIso, cacheStatus)
-                ).joinToString(separator = "\n\n")
+                ).joinToString(separator = "\n"),
+                sections = emptyList()
             )
         }
 
@@ -84,39 +90,40 @@ class ContentRepository(private val apiClient: DeviceSessionApiClient) {
         return ContentLoadState.Success(
             listOfNotNull(
                 title,
-                metadataLine(generatedAtIso, cacheStatus),
-                items.toDisplayLines()
-            ).joinToString(separator = "\n\n")
+                metadataLine(generatedAtIso, cacheStatus)
+            ).joinToString(separator = "\n"),
+            sections = listOf(ContentSectionSpec("Results", items.toContentCards()))
         )
     }
 
     private fun LibraryResponseDto.toLoadState(): ContentLoadState {
         if (sections.all { it.items.isEmpty() }) return ContentLoadState.Empty
-        val sectionLines = sections.joinToString(separator = "\n\n") { section ->
-            val itemLines = if (section.items.isEmpty()) {
-                "No items"
-            } else {
-                section.items.toDisplayLines()
-            }
-            "${section.title}\n$itemLines"
-        }
-
         return ContentLoadState.Success(
             listOfNotNull(
                 "Library loaded from backend",
-                metadataLine(generatedAtIso, cacheStatus),
-                sectionLines
-            ).joinToString(separator = "\n\n")
+                metadataLine(generatedAtIso, cacheStatus)
+            ).joinToString(separator = "\n"),
+            sections = sections
+                .filter { it.items.isNotEmpty() }
+                .map { section ->
+                    ContentSectionSpec(section.title, section.items.toContentCards())
+                }
         )
     }
 
-    private fun List<MediaCardDto>.toDisplayLines(): String {
-        return joinToString(separator = "\n") { item ->
-            val subtitle = listOfNotNull(item.creatorName, item.subtitle, item.durationText)
+    private fun List<MediaCardDto>.toContentCards(): List<ContentCardSpec> {
+        return map { item ->
+            val subtitle = listOfNotNull(item.creatorName, item.subtitle)
                 .filter { it.isNotBlank() }
                 .joinToString(separator = " - ")
-            val suffix = if (subtitle.isBlank()) "" else " - $subtitle"
-            "${item.kind.uppercase()}: ${item.title}$suffix"
+                .ifBlank { "Backend item" }
+            ContentCardSpec(
+                id = item.id,
+                eyebrow = item.kind,
+                title = item.title,
+                subtitle = subtitle,
+                metadata = item.durationText
+            )
         }
     }
 
