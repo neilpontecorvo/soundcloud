@@ -20,10 +20,12 @@
 
 ### services/api
 
-Node/TypeScript service placeholder for:
+Node/TypeScript service for:
 
-- OAuth token exchange + refresh (future).
-- Feed/search/library proxy route scaffolds with normalized response DTOs.
+- Device session bootstrap and polling.
+- Server-side provider OAuth exchange and refresh handling.
+- Local development token persistence with refresh rotation semantics.
+- Feed/search/library provider proxy routes with normalized response DTOs.
 - user session and cache adapters.
 
 ### packages/contracts
@@ -46,8 +48,8 @@ Shared web-player integration contracts and constants.
 4. Current screen handles intent (navigate, play/pause, open menu, etc).
 5. Player screen delegates to `WebPlayerHostController` for WebView actions.
 
-## Future API-backed mode
+## API-backed mode
 
 - Client calls `services/api` for auth/session bootstrapping and backend-fed Home/Search/Library data.
-- API service stores encrypted refresh/session context (implementation TBD).
-- Client receives short-lived session token for proxied requests.
+- API service stores provider token context server-side only. The local development store is file-backed and should be replaced by managed encrypted persistence for production.
+- Client sends only the backend session id for proxied requests.

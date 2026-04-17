@@ -39,6 +39,27 @@ export const getDeviceSession = (sessionId: string): DeviceSession | undefined =
   return session ? refreshExpiry(session) : undefined;
 };
 
+export const updateDeviceSession = (
+  sessionId: string,
+  patch: Partial<DeviceSession>
+): DeviceSession | undefined => {
+  const existing = sessions.get(sessionId);
+  if (!existing) return undefined;
+
+  const next = {
+    ...existing,
+    ...patch,
+    sessionId: existing.sessionId,
+    createdAtIso: existing.createdAtIso
+  };
+  sessions.set(sessionId, next);
+  return refreshExpiry(next);
+};
+
+export const restoreDeviceSession = (session: DeviceSession): void => {
+  sessions.set(session.sessionId, refreshExpiry(session));
+};
+
 export const refreshExpiry = (session: DeviceSession): DeviceSession => {
   if (session.status !== 'authenticated' && Date.parse(session.expiresAtIso) <= Date.now()) {
     session.status = 'expired';

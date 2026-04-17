@@ -8,6 +8,19 @@ declare module 'express-serve-static-core' {
 }
 
 export const requireActiveSession = (req: Request, res: Response, next: NextFunction): void => {
+  requireSession(req, res, next, false);
+};
+
+export const requireAuthenticatedSession = (req: Request, res: Response, next: NextFunction): void => {
+  requireSession(req, res, next, true);
+};
+
+const requireSession = (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+  requireAuthenticated: boolean
+): void => {
   const sessionId = readSessionId(req);
   if (!sessionId) {
     res.status(401).json({
@@ -20,7 +33,7 @@ export const requireActiveSession = (req: Request, res: Response, next: NextFunc
   const session = getDeviceSession(sessionId);
   if (!session) {
     res.status(401).json({
-      error: 'session_not_found',
+      error: 'invalid_session',
       message: 'No matching device session was found.'
     });
     return;
@@ -28,8 +41,18 @@ export const requireActiveSession = (req: Request, res: Response, next: NextFunc
 
   if (session.status === 'expired' || session.status === 'error') {
     res.status(401).json({
-      error: 'session_not_active',
+      error: 'invalid_session',
       message: `The backend session is ${session.status}.`,
+      sessionId: session.sessionId,
+      status: session.status
+    });
+    return;
+  }
+
+  if (requireAuthenticated && session.status !== 'authenticated') {
+    res.status(401).json({
+      error: 'invalid_session',
+      message: 'An authenticated backend session is required for this route.',
       sessionId: session.sessionId,
       status: session.status
     });

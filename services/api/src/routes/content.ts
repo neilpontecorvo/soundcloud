@@ -1,17 +1,24 @@
 import { NextFunction, Request, Response, Router } from 'express';
 import { ContentCache } from '../content/content-cache.js';
-import { CatalogProvider, ScaffoldCatalogProvider } from '../content/catalog-provider.js';
-import { requireActiveSession } from '../session/session-guard.js';
+import { CatalogProvider, ProviderCatalogProvider } from '../content/catalog-provider.js';
+import {
+  providerConfig,
+  providerCredentialsService
+} from '../provider/provider-runtime.js';
+import { requireAuthenticatedSession } from '../session/session-guard.js';
 
 export const contentRouter = Router();
 
-const provider: CatalogProvider = new ScaffoldCatalogProvider();
+const provider: CatalogProvider = new ProviderCatalogProvider(
+  providerConfig,
+  providerCredentialsService
+);
 const cache = new ContentCache();
 const FEED_CACHE_TTL_MS = 30 * 1000;
 const LIBRARY_CACHE_TTL_MS = 30 * 1000;
 const SEARCH_CACHE_TTL_MS = 15 * 1000;
 
-contentRouter.get('/feed', requireActiveSession, asyncRoute(async (req, res) => {
+contentRouter.get('/feed', requireAuthenticatedSession, asyncRoute(async (req, res) => {
   const session = requireSession(req);
   const result = await cache.getOrSet(
     `feed:${session.sessionId}`,
@@ -25,7 +32,7 @@ contentRouter.get('/feed', requireActiveSession, asyncRoute(async (req, res) => 
   });
 }));
 
-contentRouter.get('/search', requireActiveSession, asyncRoute(async (req, res) => {
+contentRouter.get('/search', requireAuthenticatedSession, asyncRoute(async (req, res) => {
   const session = requireSession(req);
   const query = typeof req.query.q === 'string' ? req.query.q.trim() : '';
   const result = await cache.getOrSet(
@@ -40,7 +47,7 @@ contentRouter.get('/search', requireActiveSession, asyncRoute(async (req, res) =
   });
 }));
 
-contentRouter.get('/library', requireActiveSession, asyncRoute(async (req, res) => {
+contentRouter.get('/library', requireAuthenticatedSession, asyncRoute(async (req, res) => {
   const session = requireSession(req);
   const result = await cache.getOrSet(
     `library:${session.sessionId}`,

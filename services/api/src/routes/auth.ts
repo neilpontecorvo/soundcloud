@@ -1,4 +1,9 @@
-import { Request, Response, Router } from 'express';
+import { NextFunction, Request, Response, Router } from 'express';
+import { invalidRequest, invalidSession } from '../errors/api-error.js';
+import {
+  providerCredentialsService,
+  providerOAuthService
+} from '../provider/provider-runtime.js';
 import {
   createDeviceSession,
   DeviceSession,
@@ -32,31 +37,30 @@ authRouter.get('/session/:sessionId', (req: Request, res: Response) => {
   res.json(toSessionResponse(refreshExpiry(session)));
 });
 
-authRouter.post('/auth/exchange', (req: Request, res: Response) => {
+authRouter.post('/auth/exchange', asyncRoute(async (req: Request, res: Response) => {
   const session = findSession(req.body?.sessionId, res);
   if (!session) return;
+  ensureExchangeableSession(session);
 
-  // TODO: Implement OAuth code exchange via secure backend credentials only.
-  res.status(501).json({
-    error: 'provider_not_configured',
-    message: 'OAuth exchange is wired but requires provider credentials and token logic before it can authenticate a session.',
-    sessionId: session.sessionId,
-    status: refreshExpiry(session).status
-  });
-});
+  const authorizationCode = req.body?.authorizationCode;
+  if (typeof authorizationCode !== 'string' || authorizationCode.trim().length === 0) {
+    throw invalidRequest('authorizationCode is required.');
+  }
 
-authRouter.post('/auth/refresh', (req: Request, res: Response) => {
+  const tokenSet = await providerOAuthService.exchangeAuthorizationCode(authorizationCode.trim());
+  const nextSession = providerCredentialsService.storeExchange(session, tokenSet);
+
+  res.json(toSessionResponse(nextSession));
+}));
+
+authRouter.post('/auth/refresh', asyncRoute(async (req: Request, res: Response) => {
   const session = findSession(req.body?.sessionId, res);
   if (!session) return;
+  ensureRefreshableSession(session);
 
-  // TODO: Implement refresh token exchange and secure rotation policy.
-  res.status(501).json({
-    error: 'provider_not_configured',
-    message: 'Refresh is wired but requires persisted provider refresh tokens before it can rotate a session.',
-    sessionId: session.sessionId,
-    status: refreshExpiry(session).status
-  });
-});
+  const nextSession = await providerCredentialsService.refreshSession(session);
+  res.json(toSessionResponse(nextSession));
+}));
 
 const findSession = (sessionId: unknown, res: Response): DeviceSession | undefined => {
   if (typeof sessionId !== 'string' || sessionId.length === 0) {
@@ -69,8 +73,8 @@ const findSession = (sessionId: unknown, res: Response): DeviceSession | undefin
 
   const session = getDeviceSession(sessionId);
   if (!session) {
-    res.status(404).json({
-      error: 'session_not_found',
+    res.status(401).json({
+      error: 'invalid_session',
       message: 'No matching device session was found.'
     });
     return undefined;
@@ -78,3 +82,29 @@ const findSession = (sessionId: unknown, res: Response): DeviceSession | undefin
 
   return session;
 };
+
+const ensureExchangeableSession = (session: DeviceSession): void => {
+  if (session.status === 'expired' || session.status === 'error') {
+    throw invalidSession('A non-expired backend session is required for provider exchange.', {
+      sessionId: session.sessionId,
+      status: session.status
+    });
+  }
+};
+
+const ensureRefreshableSession = (session: DeviceSession): void => {
+  if (session.status !== 'authenticated') {
+    throw invalidSession('An authenticated backend session is required for provider refresh.', {
+      sessionId: session.sessionId,
+      status: session.status
+    });
+  }
+};
+
+function asyncRoute(
+  handler: (req: Request, res: Response) => Promise<void>
+): (req: Request, res: Response, next: NextFunction) => void {
+  return (req, res, next) => {
+    handler(req, res).catch(next);
+  };
+}

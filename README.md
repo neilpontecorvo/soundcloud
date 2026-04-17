@@ -4,7 +4,7 @@ A private, sideloaded **Amazon Fire TV** client that combines:
 
 - A native **Kotlin Android TV / Fire TV shell** for deterministic D-pad UX and playback controls.
 - An embedded **WebView SoundCloud player host** for MVP playback.
-- A modular monorepo layout with API-backed session bootstrap and backend-normalized content proxy scaffolds.
+- A modular monorepo layout with API-backed session bootstrap and backend-normalized content proxy routes.
 
 > This project is **not affiliated with or endorsed by SoundCloud**. Do not use SoundCloud trademarks or branding in a way that implies official ownership.
 
@@ -74,7 +74,7 @@ npm install
 npm run dev
 ```
 
-Health and scaffold content endpoints:
+Health and content endpoints:
 
 ```bash
 curl http://localhost:4000/health
@@ -95,12 +95,12 @@ curl -H "X-Session-Id: <session_id>" http://localhost:4000/v1/feed
 - Focus manager abstraction + remote input handler
 - WebView-based player host screen
 - Settings + diagnostics screen (reload, clear cookies/session, app info)
-- Backend service for auth/session lifecycle and scaffolded content proxy responses
+- Backend service for auth/session lifecycle and provider-backed content proxy responses
 
 ## Important Compliance Notes
 
 - No downloading, ripping, or offline capture flows.
-- TODO markers are limited to real external integration needs (OAuth credentials, token exchange endpoints).
+- Provider secrets and provider tokens stay on the backend. The client only uses backend session ids and normalized API responses.
 - Avoid fake branding or implying official SoundCloud ownership.
 
 See:

@@ -1,3 +1,6 @@
+import { HttpApiError, providerUpstreamError } from '../errors/api-error.js';
+import { ProviderCredentialsService } from '../provider/credentials-service.js';
+import { ProviderConfig, requireProviderApiConfig } from '../provider/provider-config.js';
 import { DeviceSession } from '../session/session-store.js';
 
 export type MediaKind = 'track' | 'playlist' | 'station';
@@ -41,99 +44,172 @@ export interface CatalogProvider {
   getLibrary(session: DeviceSession): Promise<LibraryPayload>;
 }
 
-const allItems: MediaCard[] = [
-  {
-    id: 'track-night-drive',
-    kind: 'track',
-    title: 'Night Drive Reference Mix',
-    subtitle: 'Backend-normalized track card',
-    creatorName: 'Independent Artist',
-    durationText: '3:42',
-    artworkUrl: null,
-    webUrl: null
-  },
-  {
-    id: 'track-low-light',
-    kind: 'track',
-    title: 'Low Light Session',
-    subtitle: 'Recent listening scaffold',
-    creatorName: 'Studio Project',
-    durationText: '4:16',
-    artworkUrl: null,
-    webUrl: null
-  },
-  {
-    id: 'playlist-tv-focus',
-    kind: 'playlist',
-    title: 'TV Focus Queue',
-    subtitle: 'Playlist normalized by backend',
-    creatorName: 'Private Library',
-    durationText: '18 tracks',
-    artworkUrl: null,
-    webUrl: null
-  },
-  {
-    id: 'station-evening',
-    kind: 'station',
-    title: 'Evening Discovery',
-    subtitle: 'Station scaffold for provider adapter',
-    creatorName: 'Recommendations',
-    durationText: null,
-    artworkUrl: null,
-    webUrl: null
-  }
-];
+export class ProviderCatalogProvider implements CatalogProvider {
+  constructor(
+    private readonly config: ProviderConfig,
+    private readonly credentials: ProviderCredentialsService
+  ) {}
 
-export class ScaffoldCatalogProvider implements CatalogProvider {
-  async getFeed(_session: DeviceSession): Promise<FeedPayload> {
+  async getFeed(session: DeviceSession): Promise<FeedPayload> {
+    const accessToken = await this.credentials.getAccessToken(session);
+    const json = await this.providerGet(this.config.feedPath, accessToken);
     return {
       generatedAtIso: new Date().toISOString(),
-      items: allItems
+      items: extractItems(json).map((item) => normalizeMediaCard(item, 'track'))
     };
   }
 
-  async search(query: string, _session: DeviceSession): Promise<SearchPayload> {
-    const normalizedQuery = query.trim();
-    const searchableQuery = normalizedQuery.toLocaleLowerCase();
-    const items = searchableQuery.length === 0
-      ? allItems.slice(0, 3)
-      : allItems.filter((item) => {
-          const haystack = [
-            item.title,
-            item.subtitle,
-            item.creatorName,
-            item.kind
-          ].join(' ').toLocaleLowerCase();
-          return haystack.includes(searchableQuery);
-        });
+  async search(query: string, session: DeviceSession): Promise<SearchPayload> {
+    const accessToken = await this.credentials.getAccessToken(session);
+    const params = new URLSearchParams();
+    if (query.trim().length > 0) params.set('q', query.trim());
+    params.set('limit', '20');
 
+    const json = await this.providerGet(this.config.searchPath, accessToken, params);
     return {
       generatedAtIso: new Date().toISOString(),
-      query: normalizedQuery,
-      items
+      query: query.trim(),
+      items: extractItems(json).map((item) => normalizeMediaCard(item, 'track'))
     };
   }
 
-  async getLibrary(_session: DeviceSession): Promise<LibraryPayload> {
+  async getLibrary(session: DeviceSession): Promise<LibraryPayload> {
+    const accessToken = await this.credentials.getAccessToken(session);
+    const [tracks, playlists] = await Promise.all([
+      this.providerGet(this.config.libraryTracksPath, accessToken),
+      this.providerGet(this.config.libraryPlaylistsPath, accessToken)
+    ]);
+
     return {
       generatedAtIso: new Date().toISOString(),
       sections: [
         {
-          id: 'recent',
-          title: 'Recent',
-          items: allItems.slice(0, 2)
+          id: 'tracks',
+          title: 'Saved Tracks',
+          items: extractItems(tracks).map((item) => normalizeMediaCard(item, 'track'))
         },
         {
-          id: 'saved',
-          title: 'Saved Playlists',
-          items: allItems.filter((item) => item.kind === 'playlist')
-        },
-        {
-          id: 'discovery',
-          title: 'Discovery',
-          items: allItems.filter((item) => item.kind === 'station')
+          id: 'playlists',
+          title: 'Playlists',
+          items: extractItems(playlists).map((item) => normalizeMediaCard(item, 'playlist'))
         }
       ]
     };
   }
+
+  private async providerGet(
+    path: string,
+    accessToken: string,
+    params?: URLSearchParams
+  ): Promise<unknown> {
+    const config = requireProviderApiConfig(this.config);
+    const url = new URL(path, config.apiBaseUrl);
+    params?.forEach((value, key) => url.searchParams.set(key, value));
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), config.requestTimeoutMs);
+
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${accessToken}`
+        },
+        signal: controller.signal
+      });
+
+      if (!response.ok) {
+        throw providerUpstreamError();
+      }
+
+      return await response.json();
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw providerUpstreamError('Provider API request timed out.');
+      }
+
+      if (error instanceof HttpApiError) {
+        throw error;
+      }
+
+      throw providerUpstreamError();
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
 }
+
+const extractItems = (payload: unknown): Record<string, unknown>[] => {
+  if (Array.isArray(payload)) return payload.filter(isRecord);
+  if (!isRecord(payload)) return [];
+
+  const candidates = [
+    payload.collection,
+    payload.items,
+    payload.tracks,
+    payload.playlists,
+    payload.data,
+    payload.results
+  ];
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) return candidate.filter(isRecord);
+  }
+
+  return [];
+};
+
+const normalizeMediaCard = (
+  item: Record<string, unknown>,
+  fallbackKind: MediaKind
+): MediaCard => {
+  const user = isRecord(item.user) ? item.user : undefined;
+  const kind = readKind(item.kind, fallbackKind);
+  const title = readString(item.title) ?? readString(item.name) ?? 'Untitled';
+  const description = readString(item.description) ?? readString(item.genre);
+
+  return {
+    id: readId(item),
+    kind,
+    title,
+    subtitle: description,
+    creatorName: readString(user?.username) ?? readString(user?.full_name) ?? readString(item.creatorName),
+    artworkUrl: readString(item.artwork_url) ?? readString(item.artworkUrl) ?? readString(user?.avatar_url) ?? null,
+    durationText: durationText(item.duration),
+    webUrl: readString(item.permalink_url) ?? readString(item.webUrl) ?? null
+  };
+};
+
+const readKind = (value: unknown, fallback: MediaKind): MediaKind => {
+  if (value === 'playlist') return 'playlist';
+  if (value === 'station') return 'station';
+  if (value === 'track') return 'track';
+  return fallback;
+};
+
+const readId = (item: Record<string, unknown>): string => {
+  const value = readString(item.id)
+    ?? readString(item.urn)
+    ?? readString(item.uri)
+    ?? readString(item.permalink_url)
+    ?? readString(item.title);
+  return value ?? 'provider-item';
+};
+
+const readString = (value: unknown): string | undefined => {
+  if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return undefined;
+};
+
+const durationText = (value: unknown): string | null => {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null;
+  const totalSeconds = Math.round(value / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = String(totalSeconds % 60).padStart(2, '0');
+  return `${minutes}:${seconds}`;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> => (
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+);
