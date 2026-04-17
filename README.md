@@ -81,6 +81,11 @@ curl http://localhost:4000/health
 curl -H "X-Session-Id: <session_id>" http://localhost:4000/v1/feed
 ```
 
+For local Fire TV validation, non-production API runs expose a debug-only
+`POST /v1/debug/authenticate-session` route and the Android debug diagnostics
+screen shows an **Authenticate Debug Session** action. This does not replace
+provider OAuth and is disabled when `NODE_ENV=production`.
+
 ## Controls (Remote)
 
 - **D-pad:** deterministic focus movement
@@ -101,6 +106,7 @@ curl -H "X-Session-Id: <session_id>" http://localhost:4000/v1/feed
 
 - No downloading, ripping, or offline capture flows.
 - Provider secrets and provider tokens stay on the backend. The client only uses backend session ids and normalized API responses.
+- Debug authentication is local-development only and must not be treated as production auth.
 - Avoid fake branding or implying official SoundCloud ownership.
 
 See:

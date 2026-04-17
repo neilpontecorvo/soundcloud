@@ -31,6 +31,7 @@ PROVIDER_REDIRECT_URI=...
 Optional provider settings:
 
 ```bash
+ENABLE_DEBUG_AUTH=true
 PROVIDER_TOKEN_URL=https://secure.soundcloud.com/oauth/token
 PROVIDER_API_BASE_URL=https://api.soundcloud.com
 PROVIDER_FEED_PATH=/me/activities
@@ -40,6 +41,10 @@ PROVIDER_LIBRARY_PLAYLISTS_PATH=/me/playlists
 PROVIDER_TOKEN_STORE_PATH=.local/provider-token-store.json
 PROVIDER_REQUEST_TIMEOUT_MS=8000
 ```
+
+`ENABLE_DEBUG_AUTH` is enabled by default outside `NODE_ENV=production` and can
+be disabled locally with `ENABLE_DEBUG_AUTH=false`. It is always disabled when
+`NODE_ENV=production`.
 
 The default local token store is a JSON file under `.local/`, which is ignored
 by git and written with owner-only file permissions. Production deployments
@@ -52,6 +57,7 @@ should replace this with a managed encrypted persistence layer.
 - `GET /v1/session/:sessionId`
 - `POST /v1/auth/exchange`
 - `POST /v1/auth/refresh`
+- `POST /v1/debug/authenticate-session` (local development only)
 - `GET /v1/feed`
 - `GET /v1/search?q=<query>`
 - `GET /v1/library`
@@ -62,3 +68,18 @@ credentials or tokens to the Android client.
 Content proxy routes require an authenticated backend session via the
 `X-Session-Id` header. Feed, search, and library responses are fetched through
 provider-backed adapters and normalized before returning to the client.
+
+## Local Development Auth Completion
+
+Debug builds can promote an existing backend session without provider OAuth:
+
+```bash
+curl -X POST http://localhost:4000/v1/debug/authenticate-session \
+  -H "Content-Type: application/json" \
+  -d '{"sessionId":"<session_id>"}'
+```
+
+This route is for local Fire TV validation only. It seeds server-side local
+debug credentials and returns the normal session response shape so guarded
+content routes can be exercised without moving provider secrets or tokens to
+the Android client. It is disabled in production.

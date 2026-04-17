@@ -19,6 +19,7 @@
 - [x] OAuth exchange via backend service (client secret never on device)
 - [x] Server-side refresh token persistence and rotation handling
 - [x] Provider-backed feed/search/library adapters behind backend proxy routes
+- [x] Debug-only local auth completion path for Fire TV validation
 - [x] Hardened WebView bridge and CSP strategy
   - [x] Controlled host configuration with explicit allowlist
   - [x] Navigation blocking via HardenedWebViewClient

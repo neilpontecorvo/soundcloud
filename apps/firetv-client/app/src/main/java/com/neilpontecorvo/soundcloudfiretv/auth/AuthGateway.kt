@@ -41,6 +41,7 @@ interface AuthGateway {
     fun bootstrapSession()
     fun pollSession()
     fun exchangeAuthorizationCode(authorizationCode: String)
+    fun debugAuthenticateSession()
     fun refreshSession()
     fun clearSession()
 }

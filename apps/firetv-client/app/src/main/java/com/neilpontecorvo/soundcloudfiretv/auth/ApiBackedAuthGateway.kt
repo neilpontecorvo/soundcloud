@@ -87,6 +87,26 @@ class ApiBackedAuthGateway(
         }
     }
 
+    override fun debugAuthenticateSession() {
+        val sessionId = getCurrentState().sessionId
+        if (sessionId == null) {
+            setState(getCurrentState().copy(phase = AuthSessionPhase.ERROR, lastErrorMessage = "No session to debug-authenticate."))
+            return
+        }
+
+        runRequest {
+            val response = apiClient.debugAuthenticateSession(sessionId)
+            getCurrentState().copy(
+                phase = AuthSessionPhase.fromApiStatus(response.status),
+                sessionId = response.sessionId,
+                expiresAtIso = response.expiresAtIso,
+                authenticatedAtIso = response.authenticatedAtIso,
+                accessTokenExpiresAtIso = response.accessTokenExpiresAtIso,
+                lastErrorMessage = null
+            )
+        }
+    }
+
     override fun refreshSession() {
         val sessionId = getCurrentState().sessionId
         if (sessionId == null) {

@@ -51,6 +51,8 @@ export class ProviderCatalogProvider implements CatalogProvider {
   ) {}
 
   async getFeed(session: DeviceSession): Promise<FeedPayload> {
+    if (this.credentials.isLocalDebugSession(session)) return localDebugFeed();
+
     const accessToken = await this.credentials.getAccessToken(session);
     const json = await this.providerGet(this.config.feedPath, accessToken);
     return {
@@ -60,6 +62,8 @@ export class ProviderCatalogProvider implements CatalogProvider {
   }
 
   async search(query: string, session: DeviceSession): Promise<SearchPayload> {
+    if (this.credentials.isLocalDebugSession(session)) return localDebugSearch(query);
+
     const accessToken = await this.credentials.getAccessToken(session);
     const params = new URLSearchParams();
     if (query.trim().length > 0) params.set('q', query.trim());
@@ -74,6 +78,8 @@ export class ProviderCatalogProvider implements CatalogProvider {
   }
 
   async getLibrary(session: DeviceSession): Promise<LibraryPayload> {
+    if (this.credentials.isLocalDebugSession(session)) return localDebugLibrary();
+
     const accessToken = await this.credentials.getAccessToken(session);
     const [tracks, playlists] = await Promise.all([
       this.providerGet(this.config.libraryTracksPath, accessToken),
@@ -213,3 +219,61 @@ const durationText = (value: unknown): string | null => {
 const isRecord = (value: unknown): value is Record<string, unknown> => (
   typeof value === 'object' && value !== null && !Array.isArray(value)
 );
+
+const localDebugItems: MediaCard[] = [
+  {
+    id: 'local-debug-track',
+    kind: 'track',
+    title: 'Local Debug Track',
+    subtitle: 'Development-only backend auth validation item',
+    creatorName: 'Private Test Session',
+    artworkUrl: null,
+    durationText: '1:00',
+    webUrl: null
+  },
+  {
+    id: 'local-debug-playlist',
+    kind: 'playlist',
+    title: 'Local Debug Playlist',
+    subtitle: 'Development-only library validation item',
+    creatorName: 'Private Test Session',
+    artworkUrl: null,
+    durationText: null,
+    webUrl: null
+  }
+];
+
+const localDebugFeed = (): FeedPayload => ({
+  generatedAtIso: new Date().toISOString(),
+  items: localDebugItems
+});
+
+const localDebugSearch = (query: string): SearchPayload => {
+  const normalizedQuery = query.trim();
+  const searchableQuery = normalizedQuery.toLocaleLowerCase();
+  const items = searchableQuery.length === 0
+    ? localDebugItems
+    : localDebugItems.filter((item) => [
+        item.title,
+        item.subtitle,
+        item.creatorName,
+        item.kind
+      ].join(' ').toLocaleLowerCase().includes(searchableQuery));
+
+  return {
+    generatedAtIso: new Date().toISOString(),
+    query: normalizedQuery,
+    items
+  };
+};
+
+const localDebugLibrary = (): LibraryPayload => ({
+  generatedAtIso: new Date().toISOString(),
+  sections: [
+    {
+      id: 'debug-local',
+      title: 'Local Debug Session',
+      items: localDebugItems
+    }
+  ]
+});

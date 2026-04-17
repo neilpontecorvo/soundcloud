@@ -49,3 +49,8 @@ Production-safe WebView configuration:
 - Provider tokens (access, refresh) remain server-side only
 - No sensitive credentials in WebView JavaScript context
 - Client sends only backend session ID for API requests
+
+### Local Debug Auth
+- Debug session authentication exists only for local development and Fire TV validation.
+- The debug route is disabled in production configuration.
+- Debug credentials are server-side local markers only; they are not provider tokens and are never sent to Android.

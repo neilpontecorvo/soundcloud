@@ -31,6 +31,10 @@ export interface AuthRefreshRequest {
   sessionId: string;
 }
 
+export interface DebugAuthenticateSessionRequest {
+  sessionId: string;
+}
+
 export interface ApiError {
   error: string;
   message?: string;

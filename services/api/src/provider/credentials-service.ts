@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { invalidSession, providerRefreshFailed } from '../errors/api-error.js';
 import {
   DeviceSession,
@@ -11,7 +12,8 @@ const REFRESH_SKEW_MS = 60 * 1000;
 export class ProviderCredentialsService {
   constructor(
     private readonly oauthService: ProviderOAuthService,
-    private readonly tokenStore: FileProviderTokenStore
+    private readonly tokenStore: FileProviderTokenStore,
+    private readonly allowLocalDebugCredentials = false
   ) {}
 
   storeExchange(session: DeviceSession, tokenSet: ProviderTokenSet): DeviceSession {
@@ -30,6 +32,17 @@ export class ProviderCredentialsService {
         sessionId: session.sessionId,
         status: session.status
       });
+    }
+
+    if (record.tokens.source === 'local_debug') {
+      if (!this.allowLocalDebugCredentials) {
+        throw invalidSession('Local debug credentials are not enabled.', {
+          sessionId: session.sessionId,
+          status: session.status
+        });
+      }
+
+      return this.storeLocalDebugSession(session);
     }
 
     try {
@@ -69,6 +82,17 @@ export class ProviderCredentialsService {
       });
     }
 
+    if (record.tokens.source === 'local_debug') {
+      if (!this.allowLocalDebugCredentials) {
+        throw invalidSession('Local debug credentials are not enabled.', {
+          sessionId: session.sessionId,
+          status: session.status
+        });
+      }
+
+      return record.tokens.accessToken;
+    }
+
     if (shouldRefresh(record)) {
       const refreshedSession = await this.refreshSession(session);
       const refreshedRecord = this.tokenStore.get(refreshedSession.sessionId);
@@ -82,6 +106,45 @@ export class ProviderCredentialsService {
     }
 
     return record.tokens.accessToken;
+  }
+
+  storeLocalDebugSession(session: DeviceSession): DeviceSession {
+    if (!this.allowLocalDebugCredentials) {
+      throw invalidSession('Local debug credentials are not enabled.', {
+        sessionId: session.sessionId,
+        status: session.status
+      });
+    }
+
+    const now = new Date();
+    const expiresAtIso = new Date(now.getTime() + DEBUG_SESSION_TTL_MS).toISOString();
+    const nextSession: DeviceSession = {
+      ...session,
+      status: 'authenticated',
+      authenticatedAtIso: session.authenticatedAtIso ?? now.toISOString(),
+      accessTokenExpiresAtIso: expiresAtIso,
+      expiresAtIso
+    };
+
+    this.tokenStore.save({
+      session: nextSession,
+      tokens: {
+        accessToken: `local-debug-access-${randomUUID()}`,
+        refreshToken: `local-debug-refresh-${randomUUID()}`,
+        tokenType: 'Bearer',
+        scope: 'local_debug',
+        accessTokenExpiresAtIso: expiresAtIso,
+        updatedAtIso: now.toISOString(),
+        source: 'local_debug'
+      }
+    });
+
+    return updateDeviceSession(session.sessionId, nextSession) ?? nextSession;
+  }
+
+  isLocalDebugSession(session: DeviceSession): boolean {
+    return this.allowLocalDebugCredentials
+      && this.tokenStore.get(session.sessionId)?.tokens.source === 'local_debug';
   }
 }
 
@@ -102,9 +165,11 @@ const storedTokens = (tokenSet: ProviderTokenSet) => ({
   tokenType: tokenSet.tokenType,
   scope: tokenSet.scope,
   accessTokenExpiresAtIso: tokenSet.accessTokenExpiresAtIso,
-  updatedAtIso: new Date().toISOString()
+  updatedAtIso: new Date().toISOString(),
+  source: 'provider' as const
 });
 
+const DEBUG_SESSION_TTL_MS = 60 * 60 * 1000;
 const shouldRefresh = (record: StoredProviderSession): boolean => {
   const expiresAtIso = record.tokens.accessTokenExpiresAtIso;
   if (!expiresAtIso) return false;

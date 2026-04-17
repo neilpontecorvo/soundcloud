@@ -5,6 +5,7 @@ export type ApiErrorCode =
   | 'provider_exchange_failed'
   | 'provider_refresh_failed'
   | 'provider_upstream_error'
+  | 'debug_route_disabled'
   | 'internal_error';
 
 export class HttpApiError extends Error {
@@ -49,4 +50,8 @@ export const providerRefreshFailed = (message = 'Provider refresh failed.'): Htt
 
 export const providerUpstreamError = (message = 'Provider API request failed.'): HttpApiError => (
   new HttpApiError(502, 'provider_upstream_error', message)
+);
+
+export const debugRouteDisabled = (message = 'Debug authentication is disabled.'): HttpApiError => (
+  new HttpApiError(403, 'debug_route_disabled', message)
 );

@@ -9,6 +9,7 @@ export interface StoredProviderTokens {
   scope?: string;
   accessTokenExpiresAtIso?: string;
   updatedAtIso: string;
+  source?: 'provider' | 'local_debug';
 }
 
 export interface StoredProviderSession {

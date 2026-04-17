@@ -198,6 +198,11 @@ class MainActivity : AppCompatActivity(), HardenedWebViewClient.NavigationListen
             onBootstrapSession = { authGateway.bootstrapSession() },
             onPollSession = { authGateway.pollSession() },
             onRefreshSession = { authGateway.refreshSession() },
+            onDebugAuthenticateSession = if (BuildConfig.DEBUG) {
+                { authGateway.debugAuthenticateSession() }
+            } else {
+                null
+            },
             onReload = { playerWebView?.let(webHost::reload) },
             onClearCookies = { webHost.clearCookies() },
             onClearSession = {
@@ -275,6 +280,7 @@ class MainActivity : AppCompatActivity(), HardenedWebViewClient.NavigationListen
             "Version: ${BuildConfig.VERSION_NAME}",
             "Build type: ${if (BuildConfig.DEBUG) "Debug" else "Release"}",
             "Backend API: ${BuildConfig.API_BASE_URL}",
+            "Debug auth action: ${if (BuildConfig.DEBUG) "available" else "disabled"}",
             "",
             // Auth/session section
             "=== Session ===",

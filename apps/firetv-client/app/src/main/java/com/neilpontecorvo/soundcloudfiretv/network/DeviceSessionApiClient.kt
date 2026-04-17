@@ -104,6 +104,11 @@ class DeviceSessionApiClient(private val baseUrl: String) {
         return request("POST", "/v1/auth/refresh", body).toSessionDto()
     }
 
+    fun debugAuthenticateSession(sessionId: String): SessionDto {
+        val body = JSONObject().put("sessionId", sessionId)
+        return request("POST", "/v1/debug/authenticate-session", body).toSessionDto()
+    }
+
     fun getFeed(sessionId: String): FeedResponseDto {
         return request("GET", "/v1/feed", null, sessionHeaders(sessionId)).toFeedResponseDto()
     }

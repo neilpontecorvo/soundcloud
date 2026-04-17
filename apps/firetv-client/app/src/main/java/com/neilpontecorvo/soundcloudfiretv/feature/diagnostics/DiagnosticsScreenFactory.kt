@@ -8,6 +8,7 @@ object DiagnosticsScreenFactory {
         onBootstrapSession: () -> Unit,
         onPollSession: () -> Unit,
         onRefreshSession: () -> Unit,
+        onDebugAuthenticateSession: (() -> Unit)?,
         onReload: () -> Unit,
         onClearCookies: () -> Unit,
         onClearSession: () -> Unit,
@@ -15,13 +16,16 @@ object DiagnosticsScreenFactory {
     ): ScreenViewModel = ScreenViewModel(
         title = "Diagnostics",
         body = appInfo,
-        actions = listOf(
-            ActionSpec("Bootstrap Session", onBootstrapSession),
-            ActionSpec("Poll Session", onPollSession),
-            ActionSpec("Refresh Session", onRefreshSession),
-            ActionSpec("Reload Player", onReload),
-            ActionSpec("Clear Cookies", onClearCookies),
-            ActionSpec("Clear Session", onClearSession)
-        )
+        actions = buildList {
+            add(ActionSpec("Bootstrap Session", onBootstrapSession))
+            add(ActionSpec("Poll Session", onPollSession))
+            add(ActionSpec("Refresh Session", onRefreshSession))
+            if (onDebugAuthenticateSession != null) {
+                add(ActionSpec("Authenticate Debug Session", onDebugAuthenticateSession))
+            }
+            add(ActionSpec("Reload Player", onReload))
+            add(ActionSpec("Clear Cookies", onClearCookies))
+            add(ActionSpec("Clear Session", onClearSession))
+        }
     )
 }
