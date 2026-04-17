@@ -66,10 +66,7 @@ class ContentRepository(private val apiClient: DeviceSessionApiClient) {
     private fun FeedResponseDto.toLoadState(label: String): ContentLoadState {
         if (items.isEmpty()) return ContentLoadState.Empty
         return ContentLoadState.Success(
-            listOfNotNull(
-                "$label loaded from backend",
-                metadataLine(generatedAtIso, cacheStatus)
-            ).joinToString(separator = "\n"),
+            body = label,
             sections = listOf(ContentSectionSpec("Latest", items.toContentCards()))
         )
     }
@@ -78,20 +75,14 @@ class ContentRepository(private val apiClient: DeviceSessionApiClient) {
         if (items.isEmpty()) {
             val label = if (query.isBlank()) "default search" else "\"$query\""
             return ContentLoadState.Success(
-                listOfNotNull(
-                    "No backend results for $label.",
-                    metadataLine(generatedAtIso, cacheStatus)
-                ).joinToString(separator = "\n"),
+                body = "No results for $label",
                 sections = emptyList()
             )
         }
 
-        val title = if (query.isBlank()) "Search preview loaded from backend" else "Search results for \"$query\""
+        val title = if (query.isBlank()) "Search" else "Results for \"$query\""
         return ContentLoadState.Success(
-            listOfNotNull(
-                title,
-                metadataLine(generatedAtIso, cacheStatus)
-            ).joinToString(separator = "\n"),
+            body = title,
             sections = listOf(ContentSectionSpec("Results", items.toContentCards()))
         )
     }
@@ -99,10 +90,7 @@ class ContentRepository(private val apiClient: DeviceSessionApiClient) {
     private fun LibraryResponseDto.toLoadState(): ContentLoadState {
         if (sections.all { it.items.isEmpty() }) return ContentLoadState.Empty
         return ContentLoadState.Success(
-            listOfNotNull(
-                "Library loaded from backend",
-                metadataLine(generatedAtIso, cacheStatus)
-            ).joinToString(separator = "\n"),
+            body = "Library",
             sections = sections
                 .filter { it.items.isNotEmpty() }
                 .map { section ->
@@ -127,11 +115,4 @@ class ContentRepository(private val apiClient: DeviceSessionApiClient) {
         }
     }
 
-    private fun metadataLine(generatedAtIso: String?, cacheStatus: String?): String? {
-        val parts = listOfNotNull(
-            generatedAtIso?.let { "Generated: $it" },
-            cacheStatus?.let { "Cache: $it" }
-        )
-        return parts.takeIf { it.isNotEmpty() }?.joinToString(separator = "\n")
-    }
 }

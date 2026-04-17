@@ -29,9 +29,9 @@ import android.webkit.WebView
  * EXPOSED INTERFACE NAME: "NativePlayer"
  * This name is injected into the WebView JavaScript context.
  *
- * CURRENT STATUS: Structured for future integration. The bridge is not yet
- * attached to WebViews as the controlled-host phase does not require it.
- * When ready, call [attachToWebView] to enable the bridge.
+ * CURRENT STATUS: Attached only to the controlled player host WebView.
+ * It receives playback state from the native-owned host page and sends fixed
+ * playback commands back to that page.
  */
 class PlayerBridge(
     private val listener: BridgeEventListener? = null
@@ -40,6 +40,7 @@ class PlayerBridge(
      * Listener for events received from JavaScript.
      */
     interface BridgeEventListener {
+        fun onLoadingStateChanged(isLoading: Boolean)
         fun onPlaybackStateChanged(isPlaying: Boolean)
         fun onTrackChanged(trackId: String?, title: String?, artist: String?)
         fun onPlaybackError(errorCode: String, message: String)
@@ -51,6 +52,7 @@ class PlayerBridge(
      *
      * The bridge will be accessible in JavaScript as:
      * ```javascript
+     * window.NativePlayer.reportLoadingState(false);
      * window.NativePlayer.reportPlaybackState(true);
      * window.NativePlayer.reportTrackChange("123", "Song Title", "Artist");
      * ```
@@ -71,6 +73,17 @@ class PlayerBridge(
     // =========================================================================
     // JavaScript-callable methods (web-to-native)
     // =========================================================================
+
+    /**
+     * Called by JavaScript to report player loading state.
+     *
+     * @param isLoading True while the controlled player host is preparing playback UI.
+     */
+    @JavascriptInterface
+    fun reportLoadingState(isLoading: Boolean) {
+        Log.d(TAG, "JS -> Native: loading state changed: isLoading=$isLoading")
+        listener?.onLoadingStateChanged(isLoading)
+    }
 
     /**
      * Called by JavaScript to report playback state changes.
@@ -179,40 +192,35 @@ class PlayerBridge(
         PLAY(
             """
             (function() {
-                var btn = document.querySelector('button[aria-label*="Play"]');
-                if (btn) btn.click();
+                if (window.FireTvPlayerHost) window.FireTvPlayerHost.command('play');
             })();
             """.trimIndent()
         ),
         PAUSE(
             """
             (function() {
-                var btn = document.querySelector('button[aria-label*="Pause"]');
-                if (btn) btn.click();
+                if (window.FireTvPlayerHost) window.FireTvPlayerHost.command('pause');
             })();
             """.trimIndent()
         ),
         TOGGLE_PLAY_PAUSE(
             """
             (function() {
-                var btn = document.querySelector('button[aria-label*="Play"],button[aria-label*="Pause"]');
-                if (btn) btn.click();
+                if (window.FireTvPlayerHost) window.FireTvPlayerHost.command('toggle');
             })();
             """.trimIndent()
         ),
         NEXT(
             """
             (function() {
-                var btn = document.querySelector('button[aria-label*="Next"]');
-                if (btn) btn.click();
+                if (window.FireTvPlayerHost) window.FireTvPlayerHost.command('next');
             })();
             """.trimIndent()
         ),
         PREVIOUS(
             """
             (function() {
-                var btn = document.querySelector('button[aria-label*="Previous"]');
-                if (btn) btn.click();
+                if (window.FireTvPlayerHost) window.FireTvPlayerHost.command('previous');
             })();
             """.trimIndent()
         )

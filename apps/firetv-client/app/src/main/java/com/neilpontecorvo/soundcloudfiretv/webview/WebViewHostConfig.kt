@@ -22,6 +22,12 @@ data class WebViewHostConfig(
     val entryUrl: String,
 
     /**
+     * Provider widget URL embedded by the controlled TV host page.
+     * This keeps the WebView on a playback-only surface instead of a broad web page.
+     */
+    val playerWidgetUrl: String,
+
+    /**
      * Allowed hosts for navigation. Any navigation to a host not in this list
      * will be blocked. Include the primary host and any required subresource hosts.
      */
@@ -104,11 +110,14 @@ data class WebViewHostConfig(
          * This list should be reviewed and minimized based on actual runtime requirements.
          */
         val DEFAULT = WebViewHostConfig(
-            entryUrl = "https://soundcloud.com",
+            entryUrl = "https://soundcloud.com/tv-player-host",
+            playerWidgetUrl = "https://w.soundcloud.com/player/?url=https%3A%2F%2Fsoundcloud.com%2Fdiscover&auto_play=false&visual=false&show_comments=false&hide_related=true&show_user=true&show_reposts=false&show_teaser=false",
             allowedHosts = setOf(
                 "soundcloud.com",
                 "www.soundcloud.com",
                 "m.soundcloud.com",
+                "w.soundcloud.com",
+                "api-widget.soundcloud.com",
                 "sndcdn.com",
                 "a-v2.sndcdn.com",
                 "i1.sndcdn.com",
@@ -122,8 +131,9 @@ data class WebViewHostConfig(
          * Strict configuration for testing that only allows the primary host.
          */
         val STRICT = WebViewHostConfig(
-            entryUrl = "https://soundcloud.com",
-            allowedHosts = setOf("soundcloud.com", "www.soundcloud.com"),
+            entryUrl = "https://soundcloud.com/tv-player-host",
+            playerWidgetUrl = "https://w.soundcloud.com/player/?url=https%3A%2F%2Fsoundcloud.com%2Fdiscover&auto_play=false&visual=false&show_comments=false",
+            allowedHosts = setOf("soundcloud.com", "www.soundcloud.com", "w.soundcloud.com"),
             allowedSchemes = setOf("https"),
             allowSubpaths = true
         )

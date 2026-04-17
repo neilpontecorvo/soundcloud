@@ -18,7 +18,7 @@ import android.webkit.WebView
  * - Diagnostic state tracking
  *
  * Security properties:
- * - JavaScript enabled (required for player functionality)
+ * - JavaScript enabled (required for controlled player host functionality)
  * - DOM storage enabled (required for player state)
  * - File access disabled (no local file loading)
  * - Content access disabled (no content provider access)
@@ -59,7 +59,7 @@ class WebPlayerHostController(
         webView.webViewClient = webViewClient!!
 
         with(webView.settings) {
-            // Required for player functionality
+            // Required for controlled player host functionality
             javaScriptEnabled = true
             domStorageEnabled = true
             mediaPlaybackRequiresUserGesture = false
@@ -122,32 +122,42 @@ class WebPlayerHostController(
     }
 
     /**
-     * Loads the controlled player entry URL.
+     * Loads the controlled TV player host page.
      *
-     * Only the configured entry URL is permitted. Any other URL passed to this
-     * method is ignored and logged as a warning.
+     * Only the configured entry URL and widget URL are permitted. The loaded
+     * document is native-owned HTML that embeds the approved playback widget.
      *
      * @param webView The WebView to load content into
      * @param url Optional URL override (must match entry URL or be null)
      */
     fun loadPlayer(webView: WebView, url: String? = null) {
-        val targetUrl = url ?: config.entryUrl
-
         // Validate that the target URL matches the configured entry URL
         if (url != null && url != config.entryUrl) {
             Log.w(TAG, "loadPlayer called with non-entry URL, using configured entry URL instead")
         }
 
-        // Validate URL is allowed before loading
-        val validation = config.validateUrl(config.entryUrl)
-        if (validation is WebViewHostConfig.ValidationResult.Blocked) {
-            lastLoadError = "Entry URL blocked: ${validation.message}"
-            Log.e(TAG, "Cannot load entry URL: ${validation.message}")
+        val entryValidation = config.validateUrl(config.entryUrl)
+        if (entryValidation is WebViewHostConfig.ValidationResult.Blocked) {
+            lastLoadError = "Entry URL blocked: ${entryValidation.message}"
+            Log.e(TAG, "Cannot load entry URL: ${entryValidation.message}")
+            return
+        }
+
+        val widgetValidation = config.validateUrl(config.playerWidgetUrl)
+        if (widgetValidation is WebViewHostConfig.ValidationResult.Blocked) {
+            lastLoadError = "Widget URL blocked: ${widgetValidation.message}"
+            Log.e(TAG, "Cannot load widget URL: ${widgetValidation.message}")
             return
         }
 
         Log.i(TAG, "Loading controlled player entry: ${config.entryUrl}")
-        webView.loadUrl(config.entryUrl)
+        webView.loadDataWithBaseURL(
+            config.entryUrl,
+            buildControlledPlayerHtml(),
+            "text/html",
+            "UTF-8",
+            config.entryUrl
+        )
     }
 
     /**
@@ -207,6 +217,148 @@ class WebPlayerHostController(
      * Gets the set of allowed hosts.
      */
     fun getAllowedHosts(): Set<String> = config.allowedHosts
+
+    private fun buildControlledPlayerHtml(): String {
+        val widgetUrl = config.playerWidgetUrl.escapeHtml()
+        return """
+            <!doctype html>
+            <html>
+            <head>
+              <meta charset="utf-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1">
+              <meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src https://w.soundcloud.com; script-src 'unsafe-inline' https://w.soundcloud.com; style-src 'unsafe-inline'; img-src https: data:; connect-src https://api-widget.soundcloud.com https://w.soundcloud.com;">
+              <style>
+                html, body {
+                  margin: 0;
+                  width: 100%;
+                  height: 100%;
+                  overflow: hidden;
+                  background: #050505;
+                  color: #f4f4f4;
+                  font-family: sans-serif;
+                }
+                .shell {
+                  box-sizing: border-box;
+                  width: 100%;
+                  height: 100%;
+                  padding: 20px;
+                  background: linear-gradient(180deg, #101010 0%, #050505 100%);
+                }
+                .frame {
+                  width: 100%;
+                  height: 100%;
+                  border: 1px solid #303030;
+                  border-radius: 8px;
+                  overflow: hidden;
+                  background: #111;
+                }
+                iframe {
+                  display: block;
+                  width: 100%;
+                  height: 100%;
+                  border: 0;
+                  background: #111;
+                }
+              </style>
+            </head>
+            <body>
+              <div class="shell">
+                <div class="frame">
+                  <iframe id="providerPlayer" title="Player" allow="autoplay" src="$widgetUrl"></iframe>
+                </div>
+              </div>
+              <script src="https://w.soundcloud.com/player/api.js"></script>
+              <script>
+                (function() {
+                  var iframe = document.getElementById('providerPlayer');
+                  var widget = null;
+                  var isPlaying = false;
+
+                  function nativeCall(name) {
+                    if (!window.NativePlayer || typeof window.NativePlayer[name] !== 'function') return;
+                    var args = Array.prototype.slice.call(arguments, 1);
+                    try { window.NativePlayer[name].apply(window.NativePlayer, args); } catch (error) {}
+                  }
+
+                  function reportLoading(value) {
+                    nativeCall('reportLoadingState', !!value);
+                  }
+
+                  function reportTrack() {
+                    if (!widget || typeof widget.getCurrentSound !== 'function') return;
+                    widget.getCurrentSound(function(sound) {
+                      if (!sound) return;
+                      var artist = sound.user && sound.user.username ? sound.user.username : '';
+                      nativeCall('reportTrackChange', String(sound.id || ''), String(sound.title || ''), String(artist || ''));
+                    });
+                  }
+
+                  function bindEvent(eventName, handler) {
+                    if (!eventName || !widget || typeof widget.bind !== 'function') return;
+                    widget.bind(eventName, handler);
+                  }
+
+                  function bindWidget() {
+                    reportLoading(true);
+                    if (!window.SC || !window.SC.Widget) {
+                      nativeCall('reportPlaybackError', 'widget_api_missing', 'Player API did not load.');
+                      reportLoading(false);
+                      return;
+                    }
+
+                    widget = window.SC.Widget(iframe);
+                    window.FireTvPlayerHost = {
+                      command: function(command) {
+                        if (!widget) return;
+                        if (command === 'play') widget.play();
+                        if (command === 'pause') widget.pause();
+                        if (command === 'toggle') isPlaying ? widget.pause() : widget.play();
+                        if (command === 'next' && widget.next) widget.next();
+                        if (command === 'previous' && widget.prev) widget.prev();
+                      }
+                    };
+
+                    bindEvent(window.SC.Widget.Events.READY, function() {
+                      reportLoading(false);
+                      nativeCall('reportReady');
+                      reportTrack();
+                    });
+                    bindEvent(window.SC.Widget.Events.PLAY, function() {
+                      isPlaying = true;
+                      reportLoading(false);
+                      nativeCall('reportPlaybackState', true);
+                      reportTrack();
+                    });
+                    bindEvent(window.SC.Widget.Events.PAUSE, function() {
+                      isPlaying = false;
+                      nativeCall('reportPlaybackState', false);
+                    });
+                    bindEvent(window.SC.Widget.Events.ERROR, function() {
+                      reportLoading(false);
+                      nativeCall('reportPlaybackError', 'widget_error', 'The player reported a playback error.');
+                    });
+                    bindEvent(window.SC.Widget.Events.FINISH, function() {
+                      isPlaying = false;
+                      nativeCall('reportPlaybackState', false);
+                    });
+                  }
+
+                  if (document.readyState === 'complete') {
+                    bindWidget();
+                  } else {
+                    window.addEventListener('load', bindWidget);
+                  }
+                })();
+              </script>
+            </body>
+            </html>
+        """.trimIndent()
+    }
+
+    private fun String.escapeHtml(): String = replace("&", "&amp;")
+        .replace("\"", "&quot;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
 
     /**
      * Diagnostic state for WebView display.

@@ -1,11 +1,14 @@
 package com.neilpontecorvo.soundcloudfiretv.app
 
+import android.graphics.Color
 import android.os.Bundle
+import android.util.TypedValue
 import android.view.KeyEvent
 import android.view.View
 import android.webkit.WebView
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.neilpontecorvo.soundcloudfiretv.BuildConfig
@@ -32,7 +35,9 @@ import com.neilpontecorvo.soundcloudfiretv.webview.PlayerBridge
 import com.neilpontecorvo.soundcloudfiretv.webview.WebPlayerHostController
 import com.neilpontecorvo.soundcloudfiretv.webview.WebViewHostConfig
 
-class MainActivity : AppCompatActivity(), HardenedWebViewClient.NavigationListener {
+class MainActivity : AppCompatActivity(),
+    HardenedWebViewClient.NavigationListener,
+    PlayerBridge.BridgeEventListener {
 
     private lateinit var titleView: TextView
     private lateinit var contentFrame: FrameLayout
@@ -49,7 +54,7 @@ class MainActivity : AppCompatActivity(), HardenedWebViewClient.NavigationListen
     ).apply {
         navigationListener = this@MainActivity
     }
-    private val playerBridge = PlayerBridge()
+    private val playerBridge by lazy { PlayerBridge(this) }
 
     private val authStateListener: (AuthSessionState) -> Unit = { state ->
         refreshSettingsBody(state)
@@ -58,6 +63,10 @@ class MainActivity : AppCompatActivity(), HardenedWebViewClient.NavigationListen
 
     private var currentScreen: AppScreen = AppScreen.HOME
     private var playerWebView: WebView? = null
+    private var playerStateView: TextView? = null
+    private var playerTrackView: TextView? = null
+    private var playerErrorView: TextView? = null
+    private var playerUiState = PlayerUiState()
 
     // WebView diagnostic state for display
     private var lastBlockedNavigation: String? = null
@@ -90,6 +99,7 @@ class MainActivity : AppCompatActivity(), HardenedWebViewClient.NavigationListen
     }
 
     override fun onDestroy() {
+        playerWebView?.let(playerBridge::detachFromWebView)
         authGateway.removeListener(authStateListener)
         authGateway.shutdown()
         contentRepository.shutdown()
@@ -133,11 +143,12 @@ class MainActivity : AppCompatActivity(), HardenedWebViewClient.NavigationListen
     }
 
     override fun onPageStarted(url: String) {
-        // Could be used for loading indicator in future
+        updatePlayerUi(playerUiState.copy(isLoading = true, errorMessage = null))
     }
 
     override fun onPageFinished(url: String) {
         runOnUiThread {
+            updatePlayerUi(playerUiState.copy(isLoading = false))
             if (currentScreen == AppScreen.SETTINGS) {
                 refreshSettingsBody(authGateway.getCurrentState())
             }
@@ -146,6 +157,12 @@ class MainActivity : AppCompatActivity(), HardenedWebViewClient.NavigationListen
 
     override fun onLoadError(url: String?, errorCode: Int, description: String) {
         runOnUiThread {
+            updatePlayerUi(
+                playerUiState.copy(
+                    isLoading = false,
+                    errorMessage = "Player load error $errorCode: $description"
+                )
+            )
             if (currentScreen == AppScreen.SETTINGS) {
                 refreshSettingsBody(authGateway.getCurrentState())
             }
@@ -154,9 +171,47 @@ class MainActivity : AppCompatActivity(), HardenedWebViewClient.NavigationListen
 
     override fun onSslError(url: String?) {
         runOnUiThread {
+            updatePlayerUi(playerUiState.copy(isLoading = false, errorMessage = "Player SSL error"))
             if (currentScreen == AppScreen.SETTINGS) {
                 refreshSettingsBody(authGateway.getCurrentState())
             }
+        }
+    }
+
+    override fun onLoadingStateChanged(isLoading: Boolean) {
+        runOnUiThread {
+            updatePlayerUi(playerUiState.copy(isLoading = isLoading, errorMessage = null))
+        }
+    }
+
+    override fun onPlaybackStateChanged(isPlaying: Boolean) {
+        runOnUiThread {
+            updatePlayerUi(playerUiState.copy(isPlaying = isPlaying, isReady = true, errorMessage = null))
+        }
+    }
+
+    override fun onTrackChanged(trackId: String?, title: String?, artist: String?) {
+        runOnUiThread {
+            updatePlayerUi(
+                playerUiState.copy(
+                    trackTitle = title?.takeIf { it.isNotBlank() },
+                    artist = artist?.takeIf { it.isNotBlank() },
+                    isReady = true,
+                    errorMessage = null
+                )
+            )
+        }
+    }
+
+    override fun onPlaybackError(errorCode: String, message: String) {
+        runOnUiThread {
+            updatePlayerUi(playerUiState.copy(isLoading = false, errorMessage = "$errorCode: $message"))
+        }
+    }
+
+    override fun onReady() {
+        runOnUiThread {
+            updatePlayerUi(playerUiState.copy(isLoading = false, isReady = true, errorMessage = null))
         }
     }
 
@@ -200,11 +255,75 @@ class MainActivity : AppCompatActivity(), HardenedWebViewClient.NavigationListen
     }
 
     private fun buildPlayerView(): View {
+        playerWebView?.let(playerBridge::detachFromWebView)
         val webView = WebView(this)
         webHost.configure(webView)
-        webHost.loadPlayer(webView)
+        playerBridge.attachToWebView(webView)
         playerWebView = webView
-        return webView
+
+        val playerRoot = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.BLACK)
+
+            addView(buildPlayerHeader())
+            addView(webView, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0
+            ).apply { weight = 1f })
+        }
+
+        updatePlayerUi(PlayerUiState(isLoading = true))
+        webHost.loadPlayer(webView)
+        return playerRoot
+    }
+
+    private fun buildPlayerHeader(): View {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            setBackgroundColor(0xFF101010.toInt())
+
+            playerStateView = TextView(this@MainActivity).apply {
+                setTextColor(0xFF5CE1E6.toInt())
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                text = "Loading player"
+            }
+            playerTrackView = TextView(this@MainActivity).apply {
+                setTextColor(Color.WHITE)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                text = "Preparing playback"
+                maxLines = 1
+            }
+            playerErrorView = TextView(this@MainActivity).apply {
+                setTextColor(0xFFFFD166.toInt())
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                text = ""
+                maxLines = 2
+            }
+
+            addView(playerStateView)
+            addView(playerTrackView)
+            addView(playerErrorView)
+        }
+    }
+
+    private fun updatePlayerUi(nextState: PlayerUiState) {
+        playerUiState = nextState
+        val stateLabel = when {
+            nextState.errorMessage != null -> "Needs attention"
+            nextState.isLoading -> "Loading"
+            nextState.isPlaying -> "Playing"
+            nextState.isReady -> "Ready"
+            else -> "Idle"
+        }
+        val trackLine = listOfNotNull(nextState.trackTitle, nextState.artist)
+            .joinToString(separator = " - ")
+            .ifBlank { "Player ready for playback" }
+
+        playerStateView?.text = stateLabel
+        playerTrackView?.text = trackLine
+        playerErrorView?.text = nextState.errorMessage.orEmpty()
     }
 
     private fun buildSettingsView(): View {
@@ -303,6 +422,12 @@ class MainActivity : AppCompatActivity(), HardenedWebViewClient.NavigationListen
         contentFrame.findViewById<TextView>(R.id.panelBody)?.text = body
     }
 
+    private fun dp(value: Int): Int = TypedValue.applyDimension(
+        TypedValue.COMPLEX_UNIT_DIP,
+        value.toFloat(),
+        resources.displayMetrics
+    ).toInt()
+
     private fun buildDiagnosticsBody(state: AuthSessionState): String {
         val webViewState = webHost.getDiagnosticState()
 
@@ -340,4 +465,13 @@ class MainActivity : AppCompatActivity(), HardenedWebViewClient.NavigationListen
         )
         return rows.joinToString(separator = "\n")
     }
+
+    data class PlayerUiState(
+        val isLoading: Boolean = false,
+        val isReady: Boolean = false,
+        val isPlaying: Boolean = false,
+        val trackTitle: String? = null,
+        val artist: String? = null,
+        val errorMessage: String? = null
+    )
 }
