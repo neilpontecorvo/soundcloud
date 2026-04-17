@@ -1,0 +1,12 @@
+{
+  "name": "soundcloud-private-tv-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "services/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "check:api": "npm --workspace @soundcloud-private/api run check"
+  }
+}
