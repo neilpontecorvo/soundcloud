@@ -14,15 +14,16 @@
 - `core/navigation`: simple screen router + nav model.
 - `core/input`: remote key mapping (D-pad/select/back/play-pause/menu).
 - `webview`: SoundCloud WebView host + cookie/session controls.
-- `feature/*`: home, search, library, player, settings, diagnostics shells.
-- `auth`: auth gateway interface (local stub in Phase 1).
+- `feature/*`: home, search, library, player, settings, diagnostics surfaces.
+- `auth`: backend API-backed auth gateway and session state holder.
+- `content`: lightweight repository for backend-fed Home/Search/Library screen data.
 
 ### services/api
 
 Node/TypeScript service placeholder for:
 
 - OAuth token exchange + refresh (future).
-- API proxy endpoints.
+- Feed/search/library proxy route scaffolds with normalized response DTOs.
 - user session and cache adapters.
 
 ### packages/contracts
@@ -47,7 +48,6 @@ Shared web-player integration contracts and constants.
 
 ## Future API-backed mode
 
-- Client calls `services/api` for auth/session bootstrapping.
+- Client calls `services/api` for auth/session bootstrapping and backend-fed Home/Search/Library data.
 - API service stores encrypted refresh/session context (implementation TBD).
 - Client receives short-lived session token for proxied requests.
-

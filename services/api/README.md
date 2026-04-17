@@ -1,10 +1,10 @@
-# API Service Placeholder
+# API Service
 
-Thin backend service scaffold for future:
+Thin backend service scaffold for:
 
 - Device session bootstrap and polling
 - OAuth token exchange + refresh
-- API proxying
+- Backend-normalized feed/search/library proxy responses
 - caching and session management
 
 ## Run
@@ -21,5 +21,10 @@ npm run dev
 - `GET /v1/session/:sessionId`
 - `POST /v1/auth/exchange`
 - `POST /v1/auth/refresh`
+- `GET /v1/feed`
+- `GET /v1/search?q=<query>`
+- `GET /v1/library`
 
-Device bootstrap and session polling are scaffold-backed for client integration. OAuth exchange and refresh endpoints are wired but return provider-not-configured errors until server-side provider credentials and token storage are implemented.
+Device bootstrap, session polling, and content proxy routes are scaffold-backed for client integration. OAuth exchange and refresh endpoints are wired but return provider-not-configured errors until server-side provider credentials and token storage are implemented.
+
+Content proxy routes require a valid backend session via the `X-Session-Id` header. Provider-backed feed/search/library adapters are intentionally not implemented yet.

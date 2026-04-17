@@ -14,14 +14,15 @@
 - [x] Android client session bootstrap and polling through backend API
 - [x] Settings/diagnostics surface for backend auth session state
 - [x] Production-shaped exchange/refresh route wiring without provider credentials on device
+- [x] API proxy route scaffolds for feed/search/library access
+- [x] Native Home/Search/Library shells consume backend-normalized data
 - [ ] OAuth exchange via backend service (client secret never on device)
 - [ ] Secure refresh token rotation and provider-backed token lifecycle
-- [ ] API proxy endpoints for feed/search/library access
 - [ ] Hardened WebView bridge and CSP strategy
 
 ## Phase 3
 
-- [ ] Native card rails populated from API-proxied content
+- [ ] Native card rails populated from provider-backed API-proxied content
 - [ ] Playback state sync with native overlay controls
 - [ ] telemetry and crash diagnostics
 - [ ] end-to-end integration tests on Fire TV targets
