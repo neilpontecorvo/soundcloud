@@ -640,7 +640,10 @@ class MainActivity : AppCompatActivity(),
             else -> "IDLE"
         }
 
-        val trackTitle = nextState.trackTitle ?: when {
+        val fallbackTitle = selectedCard?.title
+        val fallbackArtist = selectedCard?.subtitle?.takeIf { it != "Ready to play" }
+
+        val trackTitle = nextState.trackTitle ?: fallbackTitle ?: when {
             nextState.isLoading -> "Preparing player..."
             nextState.isReady -> "Ready to play"
             else -> "Select a track to play"
@@ -648,8 +651,9 @@ class MainActivity : AppCompatActivity(),
 
         playerStateView?.text = stateLabel
         playerTrackView?.text = trackTitle
-        playerArtistView?.text = nextState.artist ?: ""
-        playerArtistView?.visibility = if (nextState.artist.isNullOrBlank()) View.GONE else View.VISIBLE
+        val artist = nextState.artist ?: fallbackArtist
+        playerArtistView?.text = artist ?: ""
+        playerArtistView?.visibility = if (artist.isNullOrBlank()) View.GONE else View.VISIBLE
 
         if (nextState.errorMessage != null) {
             playerErrorView?.text = nextState.errorMessage

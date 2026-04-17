@@ -104,6 +104,13 @@ class HardenedWebViewClient(
 
         // Only track main frame errors
         if (request?.isForMainFrame == true) {
+            if (isControlledEntryUrl(url)) {
+                Log.w(
+                    TAG,
+                    "Ignoring non-fatal controlled host load error for ${sanitizeUrlForLog(url)}: $errorCode - $description"
+                )
+                return
+            }
             lastError = "Error $errorCode: $description"
             Log.e(TAG, "Load error for ${sanitizeUrlForLog(url)}: $errorCode - $description")
             listener?.onLoadError(sanitizeUrlForStorage(url), errorCode, description)
@@ -175,6 +182,10 @@ class HardenedWebViewClient(
         } catch (e: Exception) {
             null
         }
+    }
+
+    private fun isControlledEntryUrl(url: String?): Boolean {
+        return sanitizeUrlForStorage(url) == sanitizeUrlForStorage(config.entryUrl)
     }
 
     private fun sslErrorToString(primaryError: Int): String = when (primaryError) {
