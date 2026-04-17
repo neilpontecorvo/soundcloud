@@ -8,7 +8,7 @@ android {
     compileSdk = 34
 
     val apiBaseUrl = providers.gradleProperty("apiBaseUrl")
-        .orElse("http://10.0.2.2:4000")
+        .orElse("http://192.168.1.167:4000")
         .get()
 
     defaultConfig {
