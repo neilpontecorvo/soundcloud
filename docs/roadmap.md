@@ -19,7 +19,13 @@
 - [x] OAuth exchange via backend service (client secret never on device)
 - [x] Server-side refresh token persistence and rotation handling
 - [x] Provider-backed feed/search/library adapters behind backend proxy routes
-- [ ] Hardened WebView bridge and CSP strategy
+- [x] Hardened WebView bridge and CSP strategy
+  - [x] Controlled host configuration with explicit allowlist
+  - [x] Navigation blocking via HardenedWebViewClient
+  - [x] Production-safe WebView settings (file access disabled, mixed content blocked, etc.)
+  - [x] Minimal JS bridge contract (PlayerBridge) with explicit command surface
+  - [x] WebView diagnostics in settings screen
+  - [x] Debug vs release behavior differentiation
 
 ## Phase 3
 

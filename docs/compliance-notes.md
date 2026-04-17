@@ -15,4 +15,37 @@ This repository is for a private Amazon Fire TV client project for SoundCloud pl
 - Fire TV remote support
 - WebView-hosted player shell
 - Settings and diagnostics
-- Optional backend placeholder only
+- Backend API gateway for auth/session/content
+
+## WebView Security Compliance
+
+### Controlled Host Strategy
+The WebView is restricted to a controlled host boundary:
+- Entry URL is explicitly configured (not user-controllable)
+- Navigation is limited to an explicit allowlist of approved hosts
+- Any attempt to navigate outside the boundary is blocked and logged
+
+### No Arbitrary URL Loading
+- `loadPlayer()` only loads the configured entry URL
+- Override URLs are rejected if they don't match the entry URL
+- No URL bar, deep link handling, or user-provided URL input
+
+### Hardened Settings
+Production-safe WebView configuration:
+- File access: disabled
+- Content provider access: disabled
+- Mixed content: blocked
+- Geolocation: disabled
+- WebView debugging: debug builds only
+- Safe browsing: enabled (Android 8.0+)
+
+### JS Bridge Boundary
+- Minimal exposed surface area
+- No generic eval or arbitrary command interfaces
+- Input validation on all web-to-native calls
+- Explicit command methods only
+
+### Token Security
+- Provider tokens (access, refresh) remain server-side only
+- No sensitive credentials in WebView JavaScript context
+- Client sends only backend session ID for API requests

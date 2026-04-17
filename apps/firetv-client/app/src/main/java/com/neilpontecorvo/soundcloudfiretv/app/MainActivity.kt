@@ -26,9 +26,12 @@ import com.neilpontecorvo.soundcloudfiretv.feature.player.PlayerScreenFactory
 import com.neilpontecorvo.soundcloudfiretv.feature.search.SearchScreenFactory
 import com.neilpontecorvo.soundcloudfiretv.feature.settings.SettingsScreenFactory
 import com.neilpontecorvo.soundcloudfiretv.network.DeviceSessionApiClient
+import com.neilpontecorvo.soundcloudfiretv.webview.HardenedWebViewClient
+import com.neilpontecorvo.soundcloudfiretv.webview.PlayerBridge
 import com.neilpontecorvo.soundcloudfiretv.webview.WebPlayerHostController
+import com.neilpontecorvo.soundcloudfiretv.webview.WebViewHostConfig
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), HardenedWebViewClient.NavigationListener {
 
     private lateinit var titleView: TextView
     private lateinit var contentFrame: FrameLayout
@@ -37,7 +40,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var apiClient: DeviceSessionApiClient
     private lateinit var authGateway: ApiBackedAuthGateway
     private lateinit var contentRepository: ContentRepository
-    private val webHost = WebPlayerHostController()
+
+    // WebView hardening components
+    private val webHost = WebPlayerHostController(
+        config = WebViewHostConfig.DEFAULT,
+        isDebugBuild = BuildConfig.DEBUG
+    ).apply {
+        navigationListener = this@MainActivity
+    }
+    private val playerBridge = PlayerBridge()
+
     private val authStateListener: (AuthSessionState) -> Unit = { state ->
         refreshSettingsBody(state)
         refreshContentForCurrentScreen(state)
@@ -45,6 +57,9 @@ class MainActivity : AppCompatActivity() {
 
     private var currentScreen: AppScreen = AppScreen.HOME
     private var playerWebView: WebView? = null
+
+    // WebView diagnostic state for display
+    private var lastBlockedNavigation: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -89,7 +104,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (action == RemoteAction.PLAY_PAUSE && currentScreen == AppScreen.PLAYER) {
-            playerWebView?.evaluateJavascript("document.querySelector('button[aria-label*=\\\"Play\\\"],button[aria-label*=\\\"Pause\\\"]')?.click();", null)
+            playerWebView?.let { playerBridge.sendTogglePlayPause(it) }
             return true
         }
 
@@ -105,13 +120,52 @@ class MainActivity : AppCompatActivity() {
         return super.onKeyDown(keyCode, event)
     }
 
+    // HardenedWebViewClient.NavigationListener implementation
+
+    override fun onNavigationBlocked(url: String, reason: WebViewHostConfig.BlockReason, message: String) {
+        lastBlockedNavigation = "$url (${reason.name})"
+        runOnUiThread {
+            if (currentScreen == AppScreen.SETTINGS) {
+                refreshSettingsBody(authGateway.getCurrentState())
+            }
+        }
+    }
+
+    override fun onPageStarted(url: String) {
+        // Could be used for loading indicator in future
+    }
+
+    override fun onPageFinished(url: String) {
+        runOnUiThread {
+            if (currentScreen == AppScreen.SETTINGS) {
+                refreshSettingsBody(authGateway.getCurrentState())
+            }
+        }
+    }
+
+    override fun onLoadError(url: String?, errorCode: Int, description: String) {
+        runOnUiThread {
+            if (currentScreen == AppScreen.SETTINGS) {
+                refreshSettingsBody(authGateway.getCurrentState())
+            }
+        }
+    }
+
+    override fun onSslError(url: String?) {
+        runOnUiThread {
+            if (currentScreen == AppScreen.SETTINGS) {
+                refreshSettingsBody(authGateway.getCurrentState())
+            }
+        }
+    }
+
     private fun bindNavButton(buttonId: Int, target: AppScreen) {
         findViewById<Button>(buttonId).setOnClickListener { navigateTo(target) }
     }
 
     private fun navigateTo(screen: AppScreen) {
         currentScreen = screen
-        titleView.text = "Private Cloud TV • ${screen.title}"
+        titleView.text = "Private Cloud TV \u2022 ${screen.title}"
         contentFrame.removeAllViews()
         playerWebView?.let { contentFrame.removeView(it) }
 
@@ -149,6 +203,7 @@ class MainActivity : AppCompatActivity() {
             onClearSession = {
                 authGateway.clearSession()
                 playerWebView?.let(webHost::clearSession)
+                lastBlockedNavigation = null
             },
             appInfo = appInfo
         )
@@ -212,9 +267,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun buildDiagnosticsBody(state: AuthSessionState): String {
+        val webViewState = webHost.getDiagnosticState()
+
         val rows = listOf(
+            // App info section
+            "=== App Info ===",
             "Version: ${BuildConfig.VERSION_NAME}",
+            "Build type: ${if (BuildConfig.DEBUG) "Debug" else "Release"}",
             "Backend API: ${BuildConfig.API_BASE_URL}",
+            "",
+            // Auth/session section
+            "=== Session ===",
             "Auth state: ${state.phase.label}",
             "Authenticated: ${state.isAuthenticated}",
             "Session ID: ${state.sessionId ?: "none"}",
@@ -223,8 +286,19 @@ class MainActivity : AppCompatActivity() {
             "Session expires: ${state.expiresAtIso ?: "unknown"}",
             "Authenticated at: ${state.authenticatedAtIso ?: "not authenticated"}",
             "Access token expires: ${state.accessTokenExpiresAtIso ?: "not available"}",
-            "Last error: ${state.lastErrorMessage ?: "none"}",
-            "Build: Debug scaffold"
+            "Last auth error: ${state.lastErrorMessage ?: "none"}",
+            "",
+            // WebView hardening section
+            "=== WebView Hardening ===",
+            "Hardening enabled: ${webViewState.hardeningEnabled}",
+            "Debug mode: ${webViewState.isDebugBuild}",
+            "Controlled host: ${webViewState.entryUrl}",
+            "Allowed hosts: ${webViewState.allowedHosts}",
+            "Current URL: ${webViewState.currentUrl ?: "not loaded"}",
+            "Loading: ${webViewState.isLoading}",
+            "Last blocked URL: ${webViewState.lastBlockedUrl ?: "none"}",
+            "Block reason: ${webViewState.lastBlockedReason ?: "n/a"}",
+            "Last WebView error: ${webViewState.lastError ?: "none"}"
         )
         return rows.joinToString(separator = "\n")
     }
