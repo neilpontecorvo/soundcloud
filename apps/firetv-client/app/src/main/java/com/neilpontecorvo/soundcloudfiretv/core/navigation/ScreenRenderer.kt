@@ -21,7 +21,8 @@ data class ContentCardSpec(
     val eyebrow: String,
     val title: String,
     val subtitle: String,
-    val metadata: String? = null
+    val metadata: String? = null,
+    val webUrl: String? = null
 )
 
 data class ContentSectionSpec(
@@ -36,10 +37,19 @@ data class ScreenViewModel(
     val contentSections: List<ContentSectionSpec> = emptyList()
 )
 
-class ScreenRenderer(private val context: Context) {
+/**
+ * Callback interface for content card selection events.
+ */
+interface ContentCardSelectionListener {
+    fun onCardSelected(card: ContentCardSpec)
+}
+
+class ScreenRenderer(
+    private val context: Context,
+    private val cardSelectionListener: ContentCardSelectionListener? = null
+) {
 
     fun render(model: ScreenViewModel): View {
-        // Check if this is a content screen (has sections) or a settings/diagnostic screen
         return if (model.contentSections.isNotEmpty()) {
             renderContentScreen(model)
         } else {
@@ -62,7 +72,6 @@ class ScreenRenderer(private val context: Context) {
 
         var firstFocusable: View? = null
 
-        // Render each content section as a rail
         model.contentSections.forEach { section ->
             val sectionView = buildMediaRail(section) { focusable ->
                 if (firstFocusable == null) firstFocusable = focusable
@@ -70,7 +79,6 @@ class ScreenRenderer(private val context: Context) {
             container.addView(sectionView)
         }
 
-        // Show body message if no content
         if (model.contentSections.isEmpty() && model.body.isNotBlank()) {
             val messageView = buildEmptyStateView(model.body)
             container.addView(messageView)
@@ -92,7 +100,6 @@ class ScreenRenderer(private val context: Context) {
             setPadding(0, 0, 0, dp(8))
         }
 
-        // Section title
         val titleView = TextView(context).apply {
             text = section.title
             setTextColor(Color.WHITE)
@@ -102,7 +109,6 @@ class ScreenRenderer(private val context: Context) {
         }
         railContainer.addView(titleView)
 
-        // Horizontal scroll with cards
         val railScroll = HorizontalScrollView(context).apply {
             isHorizontalScrollBarEnabled = false
             clipToPadding = false
@@ -146,9 +152,12 @@ class ScreenRenderer(private val context: Context) {
             layoutParams = LinearLayout.LayoutParams(cardWidth, cardHeight).apply {
                 rightMargin = dp(16)
             }
+            // Wire up click to selection listener
+            setOnClickListener {
+                cardSelectionListener?.onCardSelected(card)
+            }
         }
 
-        // Artwork placeholder area
         val artworkContainer = FrameLayout(context).apply {
             setBackgroundResource(R.drawable.artwork_placeholder)
             layoutParams = LinearLayout.LayoutParams(
@@ -157,7 +166,6 @@ class ScreenRenderer(private val context: Context) {
             )
         }
 
-        // Eyebrow badge on artwork
         val eyebrowBadge = TextView(context).apply {
             text = card.eyebrow.uppercase()
             setTextColor(Color.WHITE)
@@ -176,7 +184,6 @@ class ScreenRenderer(private val context: Context) {
         artworkContainer.addView(eyebrowBadge)
         cardRoot.addView(artworkContainer)
 
-        // Text content area
         val textContainer = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12), dp(10), dp(12), dp(10))
@@ -219,7 +226,6 @@ class ScreenRenderer(private val context: Context) {
 
         cardRoot.addView(textContainer)
 
-        // Apply focus styling
         TvFocusStyler.apply(cardRoot, focusedScale = 1.08f)
 
         return cardRoot
@@ -261,18 +267,21 @@ class ScreenRenderer(private val context: Context) {
                 setOnClickListener { spec.onClick.invoke() }
                 isFocusable = true
                 isFocusableInTouchMode = true
+                isClickable = true
                 setTextColor(Color.WHITE)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
                 setBackgroundResource(R.drawable.tv_focusable_background)
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
-                    dp(44)
+                    dp(40)
                 ).apply {
-                    bottomMargin = dp(8)
-                    marginEnd = dp(8)
+                    marginEnd = dp(12)
                 }
-                setPadding(dp(20), 0, dp(20), 0)
+                setPadding(dp(16), 0, dp(16), 0)
+                minWidth = dp(100)
+                minHeight = dp(40)
             }
-            TvFocusStyler.apply(button, focusedScale = 1.05f)
+            TvFocusStyler.apply(button, focusedScale = 1.08f)
             if (firstFocusable == null) firstFocusable = button
             actionsContainer.addView(button)
         }

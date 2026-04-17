@@ -22,14 +22,23 @@
             android:textStyle="bold"
             android:layout_marginBottom="16dp" />
 
-        <!-- Actions row (horizontal for settings buttons) -->
-        <LinearLayout
-            android:id="@+id/panelActions"
+        <!-- Actions container - vertical with wrapping rows -->
+        <HorizontalScrollView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="20dp"
-            android:orientation="horizontal"
-            android:gravity="start" />
+            android:scrollbars="none"
+            android:clipToPadding="false">
+
+            <LinearLayout
+                android:id="@+id/panelActions"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:clipToPadding="false"
+                android:paddingEnd="32dp" />
+
+        </HorizontalScrollView>
 
         <!-- Info/diagnostic body -->
         <TextView
@@ -43,7 +52,7 @@
             android:background="#0D0D0D"
             android:padding="16dp" />
 
-        <!-- Content sections (unused for settings, used by content screens) -->
+        <!-- Content sections (unused for settings) -->
         <LinearLayout
             android:id="@+id/panelContentSections"
             android:layout_width="match_parent"

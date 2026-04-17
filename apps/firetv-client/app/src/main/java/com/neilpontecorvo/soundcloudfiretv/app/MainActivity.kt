@@ -2,12 +2,15 @@ package com.neilpontecorvo.soundcloudfiretv.app
 
 import android.graphics.Color
 import android.os.Bundle
+import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
+import android.view.inputmethod.EditorInfo
 import android.webkit.WebView
 import android.widget.Button
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -20,9 +23,13 @@ import com.neilpontecorvo.soundcloudfiretv.content.ContentLoadState
 import com.neilpontecorvo.soundcloudfiretv.content.ContentRepository
 import com.neilpontecorvo.soundcloudfiretv.core.input.RemoteAction
 import com.neilpontecorvo.soundcloudfiretv.core.input.RemoteInputHandler
+import com.neilpontecorvo.soundcloudfiretv.core.navigation.ActionSpec
 import com.neilpontecorvo.soundcloudfiretv.core.navigation.AppScreen
+import com.neilpontecorvo.soundcloudfiretv.core.navigation.ContentCardSpec
+import com.neilpontecorvo.soundcloudfiretv.core.navigation.ContentCardSelectionListener
 import com.neilpontecorvo.soundcloudfiretv.core.navigation.FocusCoordinator
 import com.neilpontecorvo.soundcloudfiretv.core.navigation.ScreenRenderer
+import com.neilpontecorvo.soundcloudfiretv.core.navigation.ScreenViewModel
 import com.neilpontecorvo.soundcloudfiretv.core.navigation.TvFocusStyler
 import com.neilpontecorvo.soundcloudfiretv.feature.diagnostics.DiagnosticsScreenFactory
 import com.neilpontecorvo.soundcloudfiretv.feature.home.HomeScreenFactory
@@ -37,7 +44,8 @@ import com.neilpontecorvo.soundcloudfiretv.webview.WebViewHostConfig
 
 class MainActivity : AppCompatActivity(),
     HardenedWebViewClient.NavigationListener,
-    PlayerBridge.BridgeEventListener {
+    PlayerBridge.BridgeEventListener,
+    ContentCardSelectionListener {
 
     private lateinit var titleView: TextView
     private lateinit var contentFrame: FrameLayout
@@ -69,6 +77,11 @@ class MainActivity : AppCompatActivity(),
     private var playerErrorView: TextView? = null
     private var playerUiState = PlayerUiState()
 
+    // Selected content context for player
+    private var selectedCard: ContentCardSpec? = null
+    private var detailReturnScreen: AppScreen? = null
+    private var currentSearchQuery: String = ""
+
     // WebView diagnostic state for display
     private var lastBlockedNavigation: String? = null
 
@@ -79,7 +92,7 @@ class MainActivity : AppCompatActivity(),
         titleView = findViewById(R.id.screenTitle)
         contentFrame = findViewById(R.id.contentFrame)
         focusCoordinator = FocusCoordinator(this)
-        screenRenderer = ScreenRenderer(this)
+        screenRenderer = ScreenRenderer(this, this)
         apiClient = DeviceSessionApiClient(BuildConfig.API_BASE_URL)
         authGateway = ApiBackedAuthGateway(
             apiClient = apiClient,
@@ -113,6 +126,13 @@ class MainActivity : AppCompatActivity(),
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         val action = RemoteInputHandler.mapKeyCode(keyCode)
 
+        detailReturnScreen?.let { returnScreen ->
+            if (action == RemoteAction.BACK) {
+                navigateTo(returnScreen)
+                return true
+            }
+        }
+
         if (action == RemoteAction.BACK && currentScreen != AppScreen.HOME) {
             navigateTo(AppScreen.HOME)
             return true
@@ -133,6 +153,51 @@ class MainActivity : AppCompatActivity(),
         }
 
         return super.onKeyDown(keyCode, event)
+    }
+
+    // ContentCardSelectionListener implementation
+    override fun onCardSelected(card: ContentCardSpec) {
+        selectedCard = card
+        when (card.eyebrow.lowercase()) {
+            "playlist", "station", "album" -> showCollectionDetail(card)
+            else -> navigateTo(AppScreen.PLAYER)
+        }
+    }
+
+    private fun showCollectionDetail(card: ContentCardSpec) {
+        val returnScreen = currentScreen
+        detailReturnScreen = returnScreen
+        titleView.text = card.title
+        updateNavSelection()
+
+        val detailLines = listOfNotNull(
+            card.subtitle.takeIf { it.isNotBlank() && it != "Ready to play" },
+            card.metadata
+        )
+
+        val actions = mutableListOf<ActionSpec>()
+        if (!card.webUrl.isNullOrBlank()) {
+            actions.add(ActionSpec("Play") {
+                selectedCard = card
+                navigateTo(AppScreen.PLAYER)
+            })
+        }
+        actions.add(ActionSpec("Back") { navigateTo(returnScreen) })
+
+        val model = ScreenViewModel(
+            title = card.title,
+            body = detailLines.joinToString(separator = "\n").ifBlank {
+                if (card.webUrl.isNullOrBlank()) {
+                    "Playback is unavailable for this item."
+                } else {
+                    "Choose Play to open this item."
+                }
+            },
+            actions = actions
+        )
+
+        contentFrame.removeAllViews()
+        contentFrame.addView(screenRenderer.render(model))
     }
 
     // HardenedWebViewClient.NavigationListener implementation
@@ -229,6 +294,7 @@ class MainActivity : AppCompatActivity(),
     }
 
     private fun navigateTo(screen: AppScreen) {
+        detailReturnScreen = null
         currentScreen = screen
         updateNavSelection()
         updateTitle(screen)
@@ -236,7 +302,7 @@ class MainActivity : AppCompatActivity(),
 
         val view = when (screen) {
             AppScreen.HOME -> renderLoadingState("Home")
-            AppScreen.SEARCH -> renderLoadingState("Search")
+            AppScreen.SEARCH -> buildSearchScreen()
             AppScreen.LIBRARY -> renderLoadingState("Library")
             AppScreen.PLAYER -> buildPlayerView()
             AppScreen.SETTINGS -> buildSettingsView()
@@ -285,6 +351,150 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
+    private fun buildSearchScreen(): View {
+        val searchRoot = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(4), dp(16), dp(4), dp(16))
+        }
+
+        // Search input row
+        val searchRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, dp(20))
+        }
+
+        val searchInput = EditText(this).apply {
+            hint = "Search tracks, artists, playlists..."
+            setHintTextColor(0xFF666666.toInt())
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            setBackgroundResource(R.drawable.tv_focusable_background)
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            isFocusable = true
+            isFocusableInTouchMode = true
+            inputType = InputType.TYPE_CLASS_TEXT
+            imeOptions = EditorInfo.IME_ACTION_SEARCH
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f)
+            setText(currentSearchQuery)
+
+            setOnEditorActionListener { _, actionId, _ ->
+                if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+                    performSearch(text.toString())
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+        TvFocusStyler.apply(searchInput, focusedScale = 1.02f)
+        searchRow.addView(searchInput)
+
+        val searchButton = Button(this).apply {
+            text = "Search"
+            setTextColor(Color.WHITE)
+            setBackgroundResource(R.drawable.tv_focusable_background)
+            setPadding(dp(24), 0, dp(24), 0)
+            isFocusable = true
+            isFocusableInTouchMode = true
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                dp(48)
+            ).apply { marginStart = dp(12) }
+
+            setOnClickListener {
+                performSearch(searchInput.text.toString())
+            }
+        }
+        TvFocusStyler.apply(searchButton, focusedScale = 1.05f)
+        searchRow.addView(searchButton)
+
+        searchRoot.addView(searchRow)
+
+        // Results container
+        val resultsContainer = FrameLayout(this).apply {
+            id = R.id.contentFrame + 1000 // Unique ID for results
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+        }
+        searchRoot.addView(resultsContainer)
+
+        // Store reference for updating results
+        searchRoot.tag = resultsContainer
+        searchRoot.post { searchInput.requestFocus() }
+
+        return searchRoot
+    }
+
+    private fun performSearch(query: String) {
+        currentSearchQuery = query.trim()
+        val sessionId = authGateway.getCurrentState().sessionId ?: return
+
+        // Find results container
+        val resultsContainer = (contentFrame.getChildAt(0) as? LinearLayout)?.tag as? FrameLayout
+            ?: return
+
+        // Show loading
+        resultsContainer.removeAllViews()
+        resultsContainer.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(48), dp(60), dp(48), dp(60))
+            addView(TextView(this@MainActivity).apply {
+                text = if (currentSearchQuery.isBlank()) "Enter a search term" else "Searching..."
+                setTextColor(0xFF666666.toInt())
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                gravity = Gravity.CENTER
+            })
+        })
+
+        if (currentSearchQuery.isBlank()) return
+
+        contentRepository.search(sessionId, currentSearchQuery) { state ->
+            runOnUiThread {
+                if (currentScreen != AppScreen.SEARCH) return@runOnUiThread
+                updateSearchResults(resultsContainer, state)
+            }
+        }
+    }
+
+    private fun updateSearchResults(container: FrameLayout, state: ContentLoadState) {
+        container.removeAllViews()
+
+        when (state) {
+            ContentLoadState.Loading -> {
+                container.addView(buildCenteredMessage("Searching..."))
+            }
+            ContentLoadState.Empty -> {
+                container.addView(buildCenteredMessage("No results found for \"$currentSearchQuery\""))
+            }
+            is ContentLoadState.Success -> {
+                val model = SearchScreenFactory.create("", state.sections)
+                container.addView(screenRenderer.render(model))
+            }
+            is ContentLoadState.Error -> {
+                container.addView(buildCenteredMessage("Search failed: ${state.message}"))
+            }
+        }
+    }
+
+    private fun buildCenteredMessage(message: String): View {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(48), dp(60), dp(48), dp(60))
+            addView(TextView(this@MainActivity).apply {
+                text = message
+                setTextColor(0xFF666666.toInt())
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                gravity = Gravity.CENTER
+            })
+        }
+    }
+
     private fun buildPlayerView(): View {
         playerWebView?.let(playerBridge::detachFromWebView)
         val webView = WebView(this)
@@ -298,7 +508,7 @@ class MainActivity : AppCompatActivity(),
             setBackgroundColor(0xFF050505.toInt())
         }
 
-        // Now playing header
+        // Now playing header - show selected content context
         val headerContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(0xFF0A0A0A.toInt())
@@ -309,9 +519,8 @@ class MainActivity : AppCompatActivity(),
             )
         }
 
-        // State indicator
         playerStateView = TextView(this).apply {
-            text = "Loading"
+            text = "LOADING"
             setTextColor(0xFFFF6600.toInt())
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             setTypeface(typeface, android.graphics.Typeface.BOLD)
@@ -319,9 +528,12 @@ class MainActivity : AppCompatActivity(),
         }
         headerContainer.addView(playerStateView)
 
-        // Track title
+        // Use selected card context for initial display
+        val initialTitle = selectedCard?.title ?: "Preparing player..."
+        val initialArtist = selectedCard?.subtitle
+
         playerTrackView = TextView(this).apply {
-            text = "Preparing player..."
+            text = initialTitle
             setTextColor(Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 28f)
             setTypeface(typeface, android.graphics.Typeface.BOLD)
@@ -331,16 +543,15 @@ class MainActivity : AppCompatActivity(),
         }
         headerContainer.addView(playerTrackView)
 
-        // Artist name
         playerArtistView = TextView(this).apply {
-            text = ""
+            text = initialArtist ?: ""
             setTextColor(0xFFAAAAAA.toInt())
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             maxLines = 1
+            visibility = if (initialArtist.isNullOrBlank()) View.GONE else View.VISIBLE
         }
         headerContainer.addView(playerArtistView)
 
-        // Error message
         playerErrorView = TextView(this).apply {
             text = ""
             setTextColor(0xFFFF6666.toInt())
@@ -353,7 +564,7 @@ class MainActivity : AppCompatActivity(),
 
         playerRoot.addView(headerContainer)
 
-        // WebView container with dark frame
+        // WebView container
         val webViewContainer = FrameLayout(this).apply {
             setBackgroundColor(0xFF0D0D0D.toInt())
             setPadding(dp(32), dp(16), dp(32), dp(24))
@@ -374,8 +585,27 @@ class MainActivity : AppCompatActivity(),
         webViewContainer.addView(webViewFrame)
         playerRoot.addView(webViewContainer)
 
-        updatePlayerUi(PlayerUiState(isLoading = true))
-        webHost.loadPlayer(webView)
+        // Initialize player UI state with selected content
+        updatePlayerUi(PlayerUiState(
+            isLoading = true,
+            trackTitle = selectedCard?.title,
+            artist = selectedCard?.subtitle?.takeIf { it != "Ready to play" }
+        ))
+
+        val contentUrl = selectedCard?.webUrl
+        if (selectedCard != null && contentUrl.isNullOrBlank()) {
+            updatePlayerUi(
+                playerUiState.copy(
+                    isLoading = false,
+                    errorMessage = "Playback is unavailable for this item."
+                )
+            )
+        } else {
+            webHost.loadPlayer(webView, contentUrl)
+            webHost.getDiagnosticState().lastError?.let { error ->
+                updatePlayerUi(playerUiState.copy(isLoading = false, errorMessage = error))
+            }
+        }
         return playerRoot
     }
 
@@ -428,6 +658,7 @@ class MainActivity : AppCompatActivity(),
                 authGateway.clearSession()
                 playerWebView?.let(webHost::clearSession)
                 lastBlockedNavigation = null
+                selectedCard = null
             },
             appInfo = appInfo
         )
@@ -447,7 +678,8 @@ class MainActivity : AppCompatActivity(),
     }
 
     private fun refreshContentForCurrentScreen(state: AuthSessionState) {
-        if (currentScreen == AppScreen.HOME || currentScreen == AppScreen.SEARCH || currentScreen == AppScreen.LIBRARY) {
+        if (detailReturnScreen != null) return
+        if (currentScreen == AppScreen.HOME || currentScreen == AppScreen.LIBRARY) {
             requestContentFor(currentScreen, state)
         }
     }
@@ -455,7 +687,7 @@ class MainActivity : AppCompatActivity(),
     private fun requestContentFor(screen: AppScreen, state: AuthSessionState) {
         val sessionId = state.sessionId
         if (sessionId == null) {
-            if (screen == AppScreen.HOME || screen == AppScreen.SEARCH || screen == AppScreen.LIBRARY) {
+            if (screen == AppScreen.HOME || screen == AppScreen.LIBRARY) {
                 showContentMessage(screen, "Connecting...")
             }
             return
@@ -464,9 +696,6 @@ class MainActivity : AppCompatActivity(),
         when (screen) {
             AppScreen.HOME -> contentRepository.loadFeed(sessionId) { nextState ->
                 handleContentState(AppScreen.HOME, nextState, "No content available")
-            }
-            AppScreen.SEARCH -> contentRepository.search(sessionId, "") { nextState ->
-                handleContentState(AppScreen.SEARCH, nextState, "No results")
             }
             AppScreen.LIBRARY -> contentRepository.loadLibrary(sessionId) { nextState ->
                 handleContentState(AppScreen.LIBRARY, nextState, "Library is empty")
@@ -479,43 +708,22 @@ class MainActivity : AppCompatActivity(),
         if (currentScreen != screen) return
 
         when (state) {
-            ContentLoadState.Loading -> {
-                // Already showing loading state
-            }
-            ContentLoadState.Empty -> {
-                showContentMessage(screen, emptyMessage)
-            }
-            is ContentLoadState.Success -> {
-                renderContentScreen(screen, state)
-            }
-            is ContentLoadState.Error -> {
-                showContentMessage(screen, "Unable to load content\n${state.message}")
-            }
+            ContentLoadState.Loading -> { /* Already showing loading */ }
+            ContentLoadState.Empty -> showContentMessage(screen, emptyMessage)
+            is ContentLoadState.Success -> renderContentScreen(screen, state)
+            is ContentLoadState.Error -> showContentMessage(screen, "Unable to load content\n${state.message}")
         }
     }
 
     private fun showContentMessage(screen: AppScreen, message: String) {
         if (currentScreen != screen) return
         contentFrame.removeAllViews()
-        contentFrame.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(dp(48), dp(100), dp(48), dp(100))
-
-            val messageView = TextView(this@MainActivity).apply {
-                text = message
-                setTextColor(0xFF666666.toInt())
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-                gravity = Gravity.CENTER
-            }
-            addView(messageView)
-        })
+        contentFrame.addView(buildCenteredMessage(message))
     }
 
     private fun renderContentScreen(screen: AppScreen, state: ContentLoadState.Success) {
         val model = when (screen) {
             AppScreen.HOME -> HomeScreenFactory.create("", state.sections)
-            AppScreen.SEARCH -> SearchScreenFactory.create("", state.sections)
             AppScreen.LIBRARY -> LibraryScreenFactory.create("", state.sections)
             else -> return
         }
@@ -543,7 +751,9 @@ class MainActivity : AppCompatActivity(),
             "",
             "WebView Hardened: ${webViewState.hardeningEnabled}",
             "Controlled Host: ${webViewState.entryUrl}",
-            "Last Error: ${webViewState.lastError ?: "none"}"
+            "Last Error: ${webViewState.lastError ?: "none"}",
+            "",
+            "Selected: ${selectedCard?.title ?: "none"}"
         )
         return rows.joinToString(separator = "\n")
     }

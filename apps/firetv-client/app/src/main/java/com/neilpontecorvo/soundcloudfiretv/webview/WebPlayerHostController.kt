@@ -6,6 +6,7 @@ import android.util.Log
 import android.webkit.CookieManager
 import android.webkit.WebSettings
 import android.webkit.WebView
+import java.net.URLEncoder
 
 /**
  * Hardened WebView player host controller.
@@ -128,14 +129,10 @@ class WebPlayerHostController(
      * document is native-owned HTML that embeds the approved playback widget.
      *
      * @param webView The WebView to load content into
-     * @param url Optional URL override (must match entry URL or be null)
+     * @param url Optional selected content URL. It must be allowlisted and is
+     * embedded through the controlled widget URL, never loaded as top-level web content.
      */
     fun loadPlayer(webView: WebView, url: String? = null) {
-        // Validate that the target URL matches the configured entry URL
-        if (url != null && url != config.entryUrl) {
-            Log.w(TAG, "loadPlayer called with non-entry URL, using configured entry URL instead")
-        }
-
         val entryValidation = config.validateUrl(config.entryUrl)
         if (entryValidation is WebViewHostConfig.ValidationResult.Blocked) {
             lastLoadError = "Entry URL blocked: ${entryValidation.message}"
@@ -143,7 +140,13 @@ class WebPlayerHostController(
             return
         }
 
-        val widgetValidation = config.validateUrl(config.playerWidgetUrl)
+        val widgetUrl = buildWidgetUrl(url)
+        if (widgetUrl == null) {
+            Log.e(TAG, "Cannot load selected content URL: not allowlisted")
+            return
+        }
+
+        val widgetValidation = config.validateUrl(widgetUrl)
         if (widgetValidation is WebViewHostConfig.ValidationResult.Blocked) {
             lastLoadError = "Widget URL blocked: ${widgetValidation.message}"
             Log.e(TAG, "Cannot load widget URL: ${widgetValidation.message}")
@@ -151,9 +154,10 @@ class WebPlayerHostController(
         }
 
         Log.i(TAG, "Loading controlled player entry: ${config.entryUrl}")
+        lastLoadError = null
         webView.loadDataWithBaseURL(
             config.entryUrl,
-            buildControlledPlayerHtml(),
+            buildControlledPlayerHtml(widgetUrl),
             "text/html",
             "UTF-8",
             config.entryUrl
@@ -218,8 +222,21 @@ class WebPlayerHostController(
      */
     fun getAllowedHosts(): Set<String> = config.allowedHosts
 
-    private fun buildControlledPlayerHtml(): String {
-        val widgetUrl = config.playerWidgetUrl.escapeHtml()
+    private fun buildWidgetUrl(contentUrl: String?): String? {
+        val selectedUrl = contentUrl?.takeIf { it.isNotBlank() }
+            ?: return config.playerWidgetUrl
+
+        val contentValidation = config.validateUrl(selectedUrl)
+        if (contentValidation is WebViewHostConfig.ValidationResult.Blocked) {
+            lastLoadError = "Content URL blocked: ${contentValidation.message}"
+            return null
+        }
+
+        return "https://w.soundcloud.com/player/?url=${selectedUrl.urlEncode()}&auto_play=false&visual=false&show_comments=false&hide_related=true&show_user=true&show_reposts=false&show_teaser=false"
+    }
+
+    private fun buildControlledPlayerHtml(widgetUrl: String): String {
+        val escapedWidgetUrl = widgetUrl.escapeHtml()
         return """
             <!doctype html>
             <html>
@@ -263,7 +280,7 @@ class WebPlayerHostController(
             <body>
               <div class="shell">
                 <div class="frame">
-                  <iframe id="providerPlayer" title="Player" allow="autoplay" src="$widgetUrl"></iframe>
+                  <iframe id="providerPlayer" title="Player" allow="autoplay" src="$escapedWidgetUrl"></iframe>
                 </div>
               </div>
               <script src="https://w.soundcloud.com/player/api.js"></script>
@@ -358,6 +375,8 @@ class WebPlayerHostController(
         .replace("\"", "&quot;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
+
+    private fun String.urlEncode(): String = URLEncoder.encode(this, "UTF-8")
 
     /**
      * Diagnostic state for WebView display.

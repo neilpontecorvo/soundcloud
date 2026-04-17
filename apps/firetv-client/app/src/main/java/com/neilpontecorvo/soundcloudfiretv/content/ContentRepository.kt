@@ -110,7 +110,8 @@ class ContentRepository(private val apiClient: DeviceSessionApiClient) {
                 eyebrow = item.kind,
                 title = item.title,
                 subtitle = subtitle,
-                metadata = item.durationText
+                metadata = item.durationText,
+                webUrl = item.webUrl
             )
         }
     }
