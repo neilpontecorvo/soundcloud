@@ -27,7 +27,6 @@ import com.neilpontecorvo.soundcloudfiretv.core.navigation.TvFocusStyler
 import com.neilpontecorvo.soundcloudfiretv.feature.diagnostics.DiagnosticsScreenFactory
 import com.neilpontecorvo.soundcloudfiretv.feature.home.HomeScreenFactory
 import com.neilpontecorvo.soundcloudfiretv.feature.library.LibraryScreenFactory
-import com.neilpontecorvo.soundcloudfiretv.feature.player.PlayerScreenFactory
 import com.neilpontecorvo.soundcloudfiretv.feature.search.SearchScreenFactory
 import com.neilpontecorvo.soundcloudfiretv.feature.settings.SettingsScreenFactory
 import com.neilpontecorvo.soundcloudfiretv.network.DeviceSessionApiClient
@@ -66,6 +65,7 @@ class MainActivity : AppCompatActivity(),
     private var playerWebView: WebView? = null
     private var playerStateView: TextView? = null
     private var playerTrackView: TextView? = null
+    private var playerArtistView: TextView? = null
     private var playerErrorView: TextView? = null
     private var playerUiState = PlayerUiState()
 
@@ -89,14 +89,17 @@ class MainActivity : AppCompatActivity(),
         contentRepository = ContentRepository(apiClient)
         authGateway.addListener(authStateListener)
 
+        setupNavigation()
+        navigateTo(AppScreen.HOME)
+        authGateway.bootstrapSession()
+    }
+
+    private fun setupNavigation() {
         bindNavButton(R.id.btnHome, AppScreen.HOME)
         bindNavButton(R.id.btnSearch, AppScreen.SEARCH)
         bindNavButton(R.id.btnLibrary, AppScreen.LIBRARY)
         bindNavButton(R.id.btnPlayer, AppScreen.PLAYER)
         bindNavButton(R.id.btnSettings, AppScreen.SETTINGS)
-
-        navigateTo(AppScreen.HOME)
-        authGateway.bootstrapSession()
     }
 
     override fun onDestroy() {
@@ -144,7 +147,9 @@ class MainActivity : AppCompatActivity(),
     }
 
     override fun onPageStarted(url: String) {
-        updatePlayerUi(playerUiState.copy(isLoading = true, errorMessage = null))
+        runOnUiThread {
+            updatePlayerUi(playerUiState.copy(isLoading = true, errorMessage = null))
+        }
     }
 
     override fun onPageFinished(url: String) {
@@ -161,7 +166,7 @@ class MainActivity : AppCompatActivity(),
             updatePlayerUi(
                 playerUiState.copy(
                     isLoading = false,
-                    errorMessage = "Player load error $errorCode: $description"
+                    errorMessage = "Load error: $description"
                 )
             )
             if (currentScreen == AppScreen.SETTINGS) {
@@ -172,7 +177,7 @@ class MainActivity : AppCompatActivity(),
 
     override fun onSslError(url: String?) {
         runOnUiThread {
-            updatePlayerUi(playerUiState.copy(isLoading = false, errorMessage = "Player SSL error"))
+            updatePlayerUi(playerUiState.copy(isLoading = false, errorMessage = "Connection error"))
             if (currentScreen == AppScreen.SETTINGS) {
                 refreshSettingsBody(authGateway.getCurrentState())
             }
@@ -206,7 +211,7 @@ class MainActivity : AppCompatActivity(),
 
     override fun onPlaybackError(errorCode: String, message: String) {
         runOnUiThread {
-            updatePlayerUi(playerUiState.copy(isLoading = false, errorMessage = "$errorCode: $message"))
+            updatePlayerUi(playerUiState.copy(isLoading = false, errorMessage = message))
         }
     }
 
@@ -219,21 +224,20 @@ class MainActivity : AppCompatActivity(),
     private fun bindNavButton(buttonId: Int, target: AppScreen) {
         findViewById<Button>(buttonId).apply {
             setOnClickListener { navigateTo(target) }
-            TvFocusStyler.apply(this, focusedScale = 1.1f)
+            TvFocusStyler.applyNavStyle(this, focusedScale = 1.06f)
         }
     }
 
     private fun navigateTo(screen: AppScreen) {
         currentScreen = screen
         updateNavSelection()
-        titleView.text = "Private Cloud TV \u2022 ${screen.title}"
+        updateTitle(screen)
         contentFrame.removeAllViews()
-        playerWebView?.let { contentFrame.removeView(it) }
 
         val view = when (screen) {
-            AppScreen.HOME -> screenRenderer.render(HomeScreenFactory.create())
-            AppScreen.SEARCH -> screenRenderer.render(SearchScreenFactory.create())
-            AppScreen.LIBRARY -> screenRenderer.render(LibraryScreenFactory.create())
+            AppScreen.HOME -> renderLoadingState("Home")
+            AppScreen.SEARCH -> renderLoadingState("Search")
+            AppScreen.LIBRARY -> renderLoadingState("Library")
             AppScreen.PLAYER -> buildPlayerView()
             AppScreen.SETTINGS -> buildSettingsView()
         }
@@ -241,6 +245,16 @@ class MainActivity : AppCompatActivity(),
         contentFrame.addView(view)
         view.post { view.findFocus()?.requestFocus() ?: view.requestFocus() }
         requestContentFor(screen, authGateway.getCurrentState())
+    }
+
+    private fun updateTitle(screen: AppScreen) {
+        titleView.text = when (screen) {
+            AppScreen.HOME -> "Cloud Player"
+            AppScreen.SEARCH -> "Search"
+            AppScreen.LIBRARY -> "Your Library"
+            AppScreen.PLAYER -> "Now Playing"
+            AppScreen.SETTINGS -> "Settings"
+        }
     }
 
     private fun updateNavSelection() {
@@ -255,6 +269,22 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
+    private fun renderLoadingState(screenName: String): View {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(48), dp(100), dp(48), dp(100))
+
+            val loadingText = TextView(this@MainActivity).apply {
+                text = "Loading $screenName..."
+                setTextColor(0xFF666666.toInt())
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                gravity = Gravity.CENTER
+            }
+            addView(loadingText)
+        }
+    }
+
     private fun buildPlayerView(): View {
         playerWebView?.let(playerBridge::detachFromWebView)
         val webView = WebView(this)
@@ -265,79 +295,118 @@ class MainActivity : AppCompatActivity(),
 
         val playerRoot = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.BLACK)
-            setPadding(dp(16), dp(14), dp(16), dp(14))
+            setBackgroundColor(0xFF050505.toInt())
+        }
 
-            addView(buildPlayerHeader(), LinearLayout.LayoutParams(
+        // Now playing header
+        val headerContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(0xFF0A0A0A.toInt())
+            setPadding(dp(32), dp(24), dp(32), dp(24))
+            layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                0
-            ).apply { weight = 1f })
-            addView(webView, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        // State indicator
+        playerStateView = TextView(this).apply {
+            text = "Loading"
+            setTextColor(0xFFFF6600.toInt())
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            letterSpacing = 0.05f
+        }
+        headerContainer.addView(playerStateView)
+
+        // Track title
+        playerTrackView = TextView(this).apply {
+            text = "Preparing player..."
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 28f)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setPadding(0, dp(8), 0, dp(4))
+        }
+        headerContainer.addView(playerTrackView)
+
+        // Artist name
+        playerArtistView = TextView(this).apply {
+            text = ""
+            setTextColor(0xFFAAAAAA.toInt())
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            maxLines = 1
+        }
+        headerContainer.addView(playerArtistView)
+
+        // Error message
+        playerErrorView = TextView(this).apply {
+            text = ""
+            setTextColor(0xFFFF6666.toInt())
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            maxLines = 2
+            visibility = View.GONE
+            setPadding(0, dp(8), 0, 0)
+        }
+        headerContainer.addView(playerErrorView)
+
+        playerRoot.addView(headerContainer)
+
+        // WebView container with dark frame
+        val webViewContainer = FrameLayout(this).apply {
+            setBackgroundColor(0xFF0D0D0D.toInt())
+            setPadding(dp(32), dp(16), dp(32), dp(24))
+            layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(164)
+                0,
+                1f
+            )
+        }
+
+        val webViewFrame = FrameLayout(this).apply {
+            setBackgroundColor(0xFF111111.toInt())
+            addView(webView, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
             ))
         }
+        webViewContainer.addView(webViewFrame)
+        playerRoot.addView(webViewContainer)
 
         updatePlayerUi(PlayerUiState(isLoading = true))
         webHost.loadPlayer(webView)
         return playerRoot
     }
 
-    private fun buildPlayerHeader(): View {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(24), dp(18), dp(24), dp(18))
-            setBackgroundColor(0xFF0E0E0E.toInt())
-
-            playerStateView = TextView(this@MainActivity).apply {
-                setTextColor(0xFF5CE1E6.toInt())
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-                text = "Loading player"
-                maxLines = 1
-            }
-            playerTrackView = TextView(this@MainActivity).apply {
-                setTextColor(Color.WHITE)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 34f)
-                setTypeface(typeface, android.graphics.Typeface.BOLD)
-                text = "Preparing playback"
-                maxLines = 2
-            }
-            playerErrorView = TextView(this@MainActivity).apply {
-                setTextColor(0xFFFFD166.toInt())
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-                text = ""
-                maxLines = 2
-            }
-
-            addView(playerStateView)
-            addView(playerTrackView, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = dp(8)
-                bottomMargin = dp(8)
-            })
-            addView(playerErrorView)
-        }
-    }
-
     private fun updatePlayerUi(nextState: PlayerUiState) {
         playerUiState = nextState
+
         val stateLabel = when {
-            nextState.errorMessage != null -> "Needs attention"
-            nextState.isLoading -> "Loading"
-            nextState.isPlaying -> "Playing"
-            nextState.isReady -> "Ready"
-            else -> "Idle"
+            nextState.errorMessage != null -> "ERROR"
+            nextState.isLoading -> "LOADING"
+            nextState.isPlaying -> "PLAYING"
+            nextState.isReady -> "PAUSED"
+            else -> "IDLE"
         }
-        val trackLine = listOfNotNull(nextState.trackTitle, nextState.artist)
-            .joinToString(separator = " - ")
-            .ifBlank { "Player ready for playback" }
+
+        val trackTitle = nextState.trackTitle ?: when {
+            nextState.isLoading -> "Preparing player..."
+            nextState.isReady -> "Ready to play"
+            else -> "Select a track to play"
+        }
 
         playerStateView?.text = stateLabel
-        playerTrackView?.text = trackLine
-        playerErrorView?.text = nextState.errorMessage.orEmpty()
+        playerTrackView?.text = trackTitle
+        playerArtistView?.text = nextState.artist ?: ""
+        playerArtistView?.visibility = if (nextState.artist.isNullOrBlank()) View.GONE else View.VISIBLE
+
+        if (nextState.errorMessage != null) {
+            playerErrorView?.text = nextState.errorMessage
+            playerErrorView?.visibility = View.VISIBLE
+        } else {
+            playerErrorView?.visibility = View.GONE
+        }
     }
 
     private fun buildSettingsView(): View {
@@ -387,53 +456,71 @@ class MainActivity : AppCompatActivity(),
         val sessionId = state.sessionId
         if (sessionId == null) {
             if (screen == AppScreen.HOME || screen == AppScreen.SEARCH || screen == AppScreen.LIBRARY) {
-                updatePanelBody("Starting session...")
+                showContentMessage(screen, "Connecting...")
             }
             return
         }
 
         when (screen) {
             AppScreen.HOME -> contentRepository.loadFeed(sessionId) { nextState ->
-                updateContentBody(AppScreen.HOME, nextState, "Feed is empty.")
+                handleContentState(AppScreen.HOME, nextState, "No content available")
             }
             AppScreen.SEARCH -> contentRepository.search(sessionId, "") { nextState ->
-                updateContentBody(AppScreen.SEARCH, nextState, "Search returned no results.")
+                handleContentState(AppScreen.SEARCH, nextState, "No results")
             }
             AppScreen.LIBRARY -> contentRepository.loadLibrary(sessionId) { nextState ->
-                updateContentBody(AppScreen.LIBRARY, nextState, "Library is empty.")
+                handleContentState(AppScreen.LIBRARY, nextState, "Library is empty")
             }
             else -> Unit
         }
     }
 
-    private fun updateContentBody(screen: AppScreen, state: ContentLoadState, emptyMessage: String) {
+    private fun handleContentState(screen: AppScreen, state: ContentLoadState, emptyMessage: String) {
         if (currentScreen != screen) return
+
         when (state) {
-            ContentLoadState.Loading -> "Loading ${screen.title.lowercase()}..."
-            ContentLoadState.Empty -> emptyMessage
+            ContentLoadState.Loading -> {
+                // Already showing loading state
+            }
+            ContentLoadState.Empty -> {
+                showContentMessage(screen, emptyMessage)
+            }
             is ContentLoadState.Success -> {
                 renderContentScreen(screen, state)
-                return
             }
-            is ContentLoadState.Error -> "Unable to load ${screen.title.lowercase()}.\n${state.message}"
-        }.also { body ->
-            updatePanelBody(body)
+            is ContentLoadState.Error -> {
+                showContentMessage(screen, "Unable to load content\n${state.message}")
+            }
         }
+    }
+
+    private fun showContentMessage(screen: AppScreen, message: String) {
+        if (currentScreen != screen) return
+        contentFrame.removeAllViews()
+        contentFrame.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(48), dp(100), dp(48), dp(100))
+
+            val messageView = TextView(this@MainActivity).apply {
+                text = message
+                setTextColor(0xFF666666.toInt())
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                gravity = Gravity.CENTER
+            }
+            addView(messageView)
+        })
     }
 
     private fun renderContentScreen(screen: AppScreen, state: ContentLoadState.Success) {
         val model = when (screen) {
-            AppScreen.HOME -> HomeScreenFactory.create(state.body, state.sections)
-            AppScreen.SEARCH -> SearchScreenFactory.create(state.body, state.sections)
-            AppScreen.LIBRARY -> LibraryScreenFactory.create(state.body, state.sections)
+            AppScreen.HOME -> HomeScreenFactory.create("", state.sections)
+            AppScreen.SEARCH -> SearchScreenFactory.create("", state.sections)
+            AppScreen.LIBRARY -> LibraryScreenFactory.create("", state.sections)
             else -> return
         }
         contentFrame.removeAllViews()
         contentFrame.addView(screenRenderer.render(model))
-    }
-
-    private fun updatePanelBody(body: String) {
-        contentFrame.findViewById<TextView>(R.id.panelBody)?.text = body
     }
 
     private fun dp(value: Int): Int = TypedValue.applyDimension(
@@ -446,36 +533,17 @@ class MainActivity : AppCompatActivity(),
         val webViewState = webHost.getDiagnosticState()
 
         val rows = listOf(
-            // App info section
-            "=== App Info ===",
-            "Version: ${BuildConfig.VERSION_NAME}",
-            "Build type: ${if (BuildConfig.DEBUG) "Debug" else "Release"}",
-            "Backend API: ${BuildConfig.API_BASE_URL}",
-            "Debug auth action: ${if (BuildConfig.DEBUG) "available" else "disabled"}",
+            "App Version: ${BuildConfig.VERSION_NAME}",
+            "Build: ${if (BuildConfig.DEBUG) "Debug" else "Release"}",
+            "Backend: ${BuildConfig.API_BASE_URL}",
             "",
-            // Auth/session section
-            "=== Session ===",
-            "Auth state: ${state.phase.label}",
+            "Session: ${state.sessionId ?: "none"}",
+            "Status: ${state.phase.label}",
             "Authenticated: ${state.isAuthenticated}",
-            "Session ID: ${state.sessionId ?: "none"}",
-            "Verification URI: ${state.verificationUri ?: "not issued"}",
-            "User code: ${state.userCode ?: "not issued"}",
-            "Session expires: ${state.expiresAtIso ?: "unknown"}",
-            "Authenticated at: ${state.authenticatedAtIso ?: "not authenticated"}",
-            "Access token expires: ${state.accessTokenExpiresAtIso ?: "not available"}",
-            "Last auth error: ${state.lastErrorMessage ?: "none"}",
             "",
-            // WebView hardening section
-            "=== WebView Hardening ===",
-            "Hardening enabled: ${webViewState.hardeningEnabled}",
-            "Debug mode: ${webViewState.isDebugBuild}",
-            "Controlled host: ${webViewState.entryUrl}",
-            "Allowed hosts: ${webViewState.allowedHosts}",
-            "Current URL: ${webViewState.currentUrl ?: "not loaded"}",
-            "Loading: ${webViewState.isLoading}",
-            "Last blocked URL: ${webViewState.lastBlockedUrl ?: "none"}",
-            "Block reason: ${webViewState.lastBlockedReason ?: "n/a"}",
-            "Last WebView error: ${webViewState.lastError ?: "none"}"
+            "WebView Hardened: ${webViewState.hardeningEnabled}",
+            "Controlled Host: ${webViewState.entryUrl}",
+            "Last Error: ${webViewState.lastError ?: "none"}"
         )
         return rows.joinToString(separator = "\n")
     }

@@ -4,58 +4,74 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@android:color/black"
-    android:padding="12dp">
+    android:background="#050505"
+    android:paddingStart="32dp"
+    android:paddingEnd="32dp"
+    android:paddingTop="24dp"
+    android:paddingBottom="16dp">
 
-    <TextView
-        android:id="@+id/screenTitle"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textColor="@android:color/white"
-        android:textSize="18sp"
-        android:textStyle="bold"
-        android:text="Private Cloud TV" />
-
+    <!-- Header Row: Logo/Title + Nav -->
     <LinearLayout
-        android:id="@+id/navRow"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:orientation="horizontal">
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="16dp">
 
-        <Button
-            android:id="@+id/btnHome"
-            style="@style/TvNavButton"
-            android:text="Home" />
+        <!-- App title / branding area -->
+        <TextView
+            android:id="@+id/screenTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textColor="#FFFFFF"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:text="Cloud Player"
+            android:letterSpacing="0.02" />
 
-        <Button
-            android:id="@+id/btnSearch"
-            style="@style/TvNavButton"
-            android:text="Search" />
+        <!-- Navigation bar -->
+        <LinearLayout
+            android:id="@+id/navRow"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:background="#0A0A0A"
+            android:padding="4dp">
 
-        <Button
-            android:id="@+id/btnLibrary"
-            style="@style/TvNavButton"
-            android:text="Library" />
+            <Button
+                android:id="@+id/btnHome"
+                style="@style/TvNavButton"
+                android:text="Home" />
 
-        <Button
-            android:id="@+id/btnPlayer"
-            style="@style/TvNavButton"
-            android:text="Player" />
+            <Button
+                android:id="@+id/btnSearch"
+                style="@style/TvNavButton"
+                android:text="Search" />
 
-        <Button
-            android:id="@+id/btnSettings"
-            style="@style/TvNavButton"
-            android:text="Settings" />
+            <Button
+                android:id="@+id/btnLibrary"
+                style="@style/TvNavButton"
+                android:text="Library" />
+
+            <Button
+                android:id="@+id/btnPlayer"
+                style="@style/TvNavButton"
+                android:text="Player" />
+
+            <Button
+                android:id="@+id/btnSettings"
+                style="@style/TvNavButton"
+                android:text="Settings" />
+        </LinearLayout>
     </LinearLayout>
 
+    <!-- Content area -->
     <FrameLayout
         android:id="@+id/contentFrame"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_marginTop="8dp"
         android:layout_weight="1"
-        android:background="#090909"
-        android:padding="10dp" />
+        android:background="#050505" />
 
 </LinearLayout>

@@ -5,7 +5,7 @@ import com.neilpontecorvo.soundcloudfiretv.core.navigation.ScreenViewModel
 
 object LibraryScreenFactory {
     fun create(
-        body: String = "Loading library...",
+        body: String = "",
         sections: List<ContentSectionSpec> = emptyList()
     ): ScreenViewModel = ScreenViewModel(
         title = "Library",

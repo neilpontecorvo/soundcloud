@@ -1,21 +1,26 @@
 <resources>
     <style name="Theme.SoundCloudFireTv" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:windowBackground">#050505</item>
+        <item name="android:colorPrimary">#FF6600</item>
+        <item name="android:colorAccent">#FF6600</item>
     </style>
 
-    <style name="TvNavButton" parent="Widget.MaterialComponents.Button">
-        <item name="android:layout_width">0dp</item>
+    <style name="TvNavButton" parent="Widget.MaterialComponents.Button.TextButton">
+        <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">40dp</item>
-        <item name="android:layout_weight">1</item>
-        <item name="android:layout_marginEnd">6dp</item>
+        <item name="android:minWidth">90dp</item>
+        <item name="android:paddingStart">16dp</item>
+        <item name="android:paddingEnd">16dp</item>
         <item name="android:textAllCaps">false</item>
-        <item name="android:textSize">13sp</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">@color/tv_nav_text</item>
+        <item name="android:textStyle">bold</item>
         <item name="android:minHeight">0dp</item>
-        <item name="android:minWidth">0dp</item>
         <item name="backgroundTint">@null</item>
         <item name="android:focusable">true</item>
         <item name="android:focusableInTouchMode">true</item>
-        <item name="android:background">@drawable/tv_focusable_background</item>
+        <item name="android:background">@drawable/tv_nav_background</item>
+        <item name="android:stateListAnimator">@null</item>
     </style>
 
     <style name="TvActionButton" parent="Widget.MaterialComponents.Button">
@@ -28,5 +33,34 @@
         <item name="android:minWidth">0dp</item>
         <item name="backgroundTint">@null</item>
         <item name="android:background">@drawable/tv_focusable_background</item>
+    </style>
+
+    <style name="TvSectionTitle">
+        <item name="android:textColor">#FFFFFF</item>
+        <item name="android:textSize">18sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:letterSpacing">0.01</item>
+    </style>
+
+    <style name="TvCardTitle">
+        <item name="android:textColor">#FFFFFF</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:maxLines">2</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+
+    <style name="TvCardSubtitle">
+        <item name="android:textColor">#AAAAAA</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+
+    <style name="TvCardEyebrow">
+        <item name="android:textColor">#FF6600</item>
+        <item name="android:textSize">11sp</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:letterSpacing">0.05</item>
     </style>
 </resources>

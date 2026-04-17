@@ -5,7 +5,7 @@ import com.neilpontecorvo.soundcloudfiretv.core.navigation.ScreenViewModel
 
 object SearchScreenFactory {
     fun create(
-        body: String = "Loading search...",
+        body: String = "",
         sections: List<ContentSectionSpec> = emptyList()
     ): ScreenViewModel = ScreenViewModel(
         title = "Search",

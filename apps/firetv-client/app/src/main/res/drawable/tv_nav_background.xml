@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Focused + Selected: bright accent with glow effect -->
+    <item android:state_focused="true" android:state_selected="true">
+        <layer-list>
+            <item>
+                <shape android:shape="rectangle">
+                    <corners android:radius="6dp" />
+                    <solid android:color="#FF6600" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+    <!-- Focused only: strong yellow border -->
+    <item android:state_focused="true">
+        <shape android:shape="rectangle">
+            <corners android:radius="6dp" />
+            <solid android:color="#1A1A1A" />
+            <stroke android:width="3dp" android:color="#FFE066" />
+        </shape>
+    </item>
+    <!-- Selected only: accent underline style -->
+    <item android:state_selected="true">
+        <layer-list>
+            <item>
+                <shape android:shape="rectangle">
+                    <corners android:radius="6dp" />
+                    <solid android:color="#1F1F1F" />
+                </shape>
+            </item>
+            <item android:bottom="0dp" android:top="34dp">
+                <shape android:shape="rectangle">
+                    <corners android:bottomLeftRadius="6dp" android:bottomRightRadius="6dp" />
+                    <solid android:color="#FF6600" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+    <!-- Default: dark subtle -->
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="6dp" />
+            <solid android:color="#141414" />
+        </shape>
+    </item>
+</selector>
