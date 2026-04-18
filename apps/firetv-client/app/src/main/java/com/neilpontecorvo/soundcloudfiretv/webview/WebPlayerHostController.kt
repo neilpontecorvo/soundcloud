@@ -306,11 +306,29 @@ class WebPlayerHostController(
                   var iframe = document.getElementById('providerPlayer');
                   var widget = null;
                   var isPlaying = false;
+                  var didAttemptDebugPlay = false;
 
                   function nativeCall(name) {
                     if (!window.NativePlayer || typeof window.NativePlayer[name] !== 'function') return;
                     var args = Array.prototype.slice.call(arguments, 1);
                     try { window.NativePlayer[name].apply(window.NativePlayer, args); } catch (error) {}
+                  }
+
+                  function debugPlayer(name, detail) {
+                    var safeDetail = detail;
+                    try {
+                      if (safeDetail === undefined || safeDetail === null) safeDetail = '';
+                      if (typeof safeDetail !== 'string') safeDetail = JSON.stringify(safeDetail);
+                    } catch (error) {
+                      safeDetail = String(detail);
+                    }
+                    try { console.log('fire-tv: player debug ' + name + '=' + safeDetail); } catch (error) {}
+                    nativeCall('reportDebugEvent', String(name || 'unknown'), String(safeDetail || ''));
+                  }
+
+                  function finalIframeSrc() {
+                    if (!iframe) return 'missing_iframe';
+                    return iframe.getAttribute('src') || iframe.src || '';
                   }
 
                   function reportLoading(value) {
@@ -326,13 +344,55 @@ class WebPlayerHostController(
                     });
                   }
 
+                  function reportPausedState(label) {
+                    if (!widget || typeof widget.isPaused !== 'function') {
+                      debugPlayer('widget_is_paused_' + label, 'unavailable');
+                      return;
+                    }
+                    try {
+                      widget.isPaused(function(paused) {
+                        debugPlayer('widget_is_paused_' + label, String(!!paused));
+                      });
+                    } catch (error) {
+                      debugPlayer('widget_is_paused_' + label + '_error', error && error.message ? error.message : String(error));
+                    }
+                  }
+
+                  function reportCurrentSoundState(label) {
+                    if (!widget || typeof widget.getCurrentSound !== 'function') {
+                      debugPlayer('widget_current_sound_' + label, 'unavailable');
+                      return;
+                    }
+                    try {
+                      widget.getCurrentSound(function(sound) {
+                        var payload = {
+                          hasSound: !!sound,
+                          id: sound && sound.id ? String(sound.id) : '',
+                          title: sound && sound.title ? String(sound.title) : '',
+                          user: sound && sound.user && sound.user.username ? String(sound.user.username) : ''
+                        };
+                        debugPlayer('widget_current_sound_' + label, payload);
+                      });
+                    } catch (error) {
+                      debugPlayer('widget_current_sound_' + label + '_error', error && error.message ? error.message : String(error));
+                    }
+                  }
+
                   function bindEvent(eventName, handler) {
-                    if (!eventName || !widget || typeof widget.bind !== 'function') return;
-                    widget.bind(eventName, handler);
+                    if (!eventName || !widget || typeof widget.bind !== 'function') {
+                      debugPlayer('widget_event_bind_failed', String(eventName || 'missing_event'));
+                      return;
+                    }
+                    widget.bind(eventName, function() {
+                      debugPlayer('widget_event_fired', String(eventName));
+                      handler();
+                    });
+                    debugPlayer('widget_event_bound', String(eventName));
                   }
 
                   function bindWidget() {
                     reportLoading(true);
+                    debugPlayer('final_iframe_src_before_widget', finalIframeSrc());
                     try { console.log('fire-tv: bindWidget entered; SC=' + (!!window.SC) + ' SC.Widget=' + (!!(window.SC && window.SC.Widget))); } catch (e) {}
                     if (!window.SC || !window.SC.Widget) {
                       nativeCall('reportPlaybackError', 'widget_api_missing', 'Player API did not load.');
@@ -341,6 +401,7 @@ class WebPlayerHostController(
                     }
 
                     widget = window.SC.Widget(iframe);
+                    debugPlayer('final_iframe_src_after_widget', finalIframeSrc());
                     window.FireTvPlayerHost = {
                       command: function(command) {
                         if (!widget) return;
@@ -355,7 +416,23 @@ class WebPlayerHostController(
                     bindEvent(window.SC.Widget.Events.READY, function() {
                       reportLoading(false);
                       nativeCall('reportReady');
+                      debugPlayer('final_iframe_src_ready', finalIframeSrc());
+                      reportPausedState('ready');
+                      reportCurrentSoundState('ready');
                       reportTrack();
+                      if (!didAttemptDebugPlay) {
+                        didAttemptDebugPlay = true;
+                        try {
+                          widget.play();
+                          debugPlayer('debug_play_invoked', 'true');
+                        } catch (error) {
+                          debugPlayer('debug_play_error', error && error.message ? error.message : String(error));
+                        }
+                        window.setTimeout(function() {
+                          reportPausedState('after_debug_play');
+                          reportCurrentSoundState('after_debug_play');
+                        }, 1000);
+                      }
                     });
                     bindEvent(window.SC.Widget.Events.PLAY, function() {
                       isPlaying = true;

@@ -96,6 +96,19 @@ class PlayerBridge(
     }
 
     /**
+     * Called by JavaScript to report bounded diagnostics from the controlled
+     * player document. This is intentionally observational only; it does not
+     * expose commands or credentials to JavaScript.
+     */
+    @JavascriptInterface
+    fun reportDebugEvent(name: String?, detail: String?) {
+        val safeName = sanitizeString(name, 64) ?: "unknown"
+        val safeDetail = sanitizeString(detail, 2048) ?: ""
+
+        Log.i(TAG, "JS -> Native: player debug: $safeName=$safeDetail")
+    }
+
+    /**
      * Called by JavaScript to report playback state changes.
      *
      * @param isPlaying True if playback is active, false if paused/stopped
