@@ -104,10 +104,10 @@ class HardenedWebViewClient(
 
         // Only track main frame errors
         if (request?.isForMainFrame == true) {
-            if (isControlledEntryUrl(url)) {
+            if (isSyntheticControlledLoadError(url)) {
                 Log.w(
                     TAG,
-                    "Ignoring non-fatal controlled host load error for ${sanitizeUrlForLog(url)}: $errorCode - $description"
+                    "Ignoring non-fatal synthetic controlled host load error for ${sanitizeUrlForLog(url)}: $errorCode - $description"
                 )
                 return
             }
@@ -186,6 +186,14 @@ class HardenedWebViewClient(
 
     private fun isControlledEntryUrl(url: String?): Boolean {
         return sanitizeUrlForStorage(url) == sanitizeUrlForStorage(config.entryUrl)
+    }
+
+    private fun isSyntheticControlledLoadError(url: String?): Boolean {
+        if (isControlledEntryUrl(url)) return true
+        if (url == null) return true
+
+        val normalized = url.trim().lowercase()
+        return normalized == "data://null" || normalized.startsWith("data:")
     }
 
     private fun sslErrorToString(primaryError: Int): String = when (primaryError) {

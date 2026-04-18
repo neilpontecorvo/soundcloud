@@ -1,7 +1,10 @@
 package com.neilpontecorvo.soundcloudfiretv.app
 
 import android.graphics.Color
+import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.InputType
 import android.util.Log
 import android.util.TypedValue
@@ -79,6 +82,10 @@ class MainActivity : AppCompatActivity(),
     private var playerArtistView: TextView? = null
     private var playerErrorView: TextView? = null
     private var playerUiState = PlayerUiState()
+    private val playerTimeoutHandler = Handler(Looper.getMainLooper())
+    private var playerTimeoutRunnable: Runnable? = null
+    private var playerLoadToken: Int = 0
+    private var hasLoggedFirstBridgeEvent: Boolean = false
 
     // Selected content context for player
     private var selectedCard: ContentCardSpec? = null
@@ -119,7 +126,7 @@ class MainActivity : AppCompatActivity(),
     }
 
     override fun onDestroy() {
-        playerWebView?.let(playerBridge::detachFromWebView)
+        releasePlayerHost(clearSelection = false)
         authGateway.removeListener(authStateListener)
         authGateway.shutdown()
         contentRepository.shutdown()
@@ -220,12 +227,20 @@ class MainActivity : AppCompatActivity(),
     }
 
     override fun onPageStarted(url: String) {
+        if (!isPlayerVisibleWithPlayableSelection()) {
+            Log.d(TAG, "Ignoring page start outside active player target: ${sanitizeUrlForLog(url)}")
+            return
+        }
         runOnUiThread {
             updatePlayerUi(playerUiState.copy(isLoading = true, errorMessage = null))
         }
     }
 
     override fun onPageFinished(url: String) {
+        if (!isPlayerVisibleWithPlayableSelection()) {
+            Log.d(TAG, "Ignoring page finish outside active player target: ${sanitizeUrlForLog(url)}")
+            return
+        }
         runOnUiThread {
             updatePlayerUi(playerUiState.copy(isLoading = false))
             if (currentScreen == AppScreen.SETTINGS) {
@@ -235,7 +250,13 @@ class MainActivity : AppCompatActivity(),
     }
 
     override fun onLoadError(url: String?, errorCode: Int, description: String) {
+        if (!isPlayerVisibleWithPlayableSelection()) {
+            Log.d(TAG, "Ignoring load error outside active player target: ${sanitizeUrlForLog(url)}")
+            return
+        }
         runOnUiThread {
+            cancelPlayerReadyTimeout()
+            Log.w(TAG, "Player load failure: code=$errorCode, reason=$description")
             updatePlayerUi(
                 playerUiState.copy(
                     isLoading = false,
@@ -249,7 +270,13 @@ class MainActivity : AppCompatActivity(),
     }
 
     override fun onSslError(url: String?) {
+        if (!isPlayerVisibleWithPlayableSelection()) {
+            Log.d(TAG, "Ignoring SSL error outside active player target: ${sanitizeUrlForLog(url)}")
+            return
+        }
         runOnUiThread {
+            cancelPlayerReadyTimeout()
+            Log.w(TAG, "Player SSL failure for ${sanitizeUrlForLog(url)}")
             updatePlayerUi(playerUiState.copy(isLoading = false, errorMessage = "Connection error"))
             if (currentScreen == AppScreen.SETTINGS) {
                 refreshSettingsBody(authGateway.getCurrentState())
@@ -258,18 +285,35 @@ class MainActivity : AppCompatActivity(),
     }
 
     override fun onLoadingStateChanged(isLoading: Boolean) {
+        if (!isPlayerVisibleWithPlayableSelection()) {
+            Log.d(TAG, "Ignoring bridge loading event outside active player target")
+            return
+        }
+        logBridgeEvent("loading=$isLoading")
         runOnUiThread {
             updatePlayerUi(playerUiState.copy(isLoading = isLoading, errorMessage = null))
         }
     }
 
     override fun onPlaybackStateChanged(isPlaying: Boolean) {
+        if (!isPlayerVisibleWithPlayableSelection()) {
+            Log.d(TAG, "Ignoring bridge playback event outside active player target")
+            return
+        }
+        logBridgeEvent("playing=$isPlaying")
+        cancelPlayerReadyTimeout()
         runOnUiThread {
             updatePlayerUi(playerUiState.copy(isPlaying = isPlaying, isReady = true, errorMessage = null))
         }
     }
 
     override fun onTrackChanged(trackId: String?, title: String?, artist: String?) {
+        if (!isPlayerVisibleWithPlayableSelection()) {
+            Log.d(TAG, "Ignoring bridge track event outside active player target")
+            return
+        }
+        logBridgeEvent("track")
+        cancelPlayerReadyTimeout()
         runOnUiThread {
             updatePlayerUi(
                 playerUiState.copy(
@@ -283,12 +327,25 @@ class MainActivity : AppCompatActivity(),
     }
 
     override fun onPlaybackError(errorCode: String, message: String) {
+        if (!isPlayerVisibleWithPlayableSelection()) {
+            Log.d(TAG, "Ignoring bridge error outside active player target: code=$errorCode")
+            return
+        }
+        logBridgeEvent("error=$errorCode")
+        cancelPlayerReadyTimeout()
         runOnUiThread {
+            Log.w(TAG, "Player bridge failure: code=$errorCode, reason=$message")
             updatePlayerUi(playerUiState.copy(isLoading = false, errorMessage = message))
         }
     }
 
     override fun onReady() {
+        if (!isPlayerVisibleWithPlayableSelection()) {
+            Log.d(TAG, "Ignoring bridge ready event outside active player target")
+            return
+        }
+        logBridgeEvent("ready")
+        cancelPlayerReadyTimeout()
         runOnUiThread {
             updatePlayerUi(playerUiState.copy(isLoading = false, isReady = true, errorMessage = null))
         }
@@ -302,6 +359,11 @@ class MainActivity : AppCompatActivity(),
     }
 
     private fun navigateTo(screen: AppScreen) {
+        val leavingPlayer = currentScreen == AppScreen.PLAYER && screen != AppScreen.PLAYER
+        if (leavingPlayer) {
+            releasePlayerHost(clearSelection = false)
+        }
+
         detailReturnScreen = null
         currentScreen = screen
         updateNavSelection()
@@ -509,12 +571,42 @@ class MainActivity : AppCompatActivity(),
     }
 
     private fun buildPlayerView(): View {
-        playerWebView?.let(playerBridge::detachFromWebView)
+        val selected = selectedCard
+        val contentUrl = selected?.webUrl?.takeIf { it.isNotBlank() }
+
+        if (selected == null) {
+            releasePlayerHost(clearSelection = false)
+            playerUiState = PlayerUiState()
+            return buildPlayerIdleView(
+                title = "No track selected",
+                message = "Choose a track from Home, Search, or Library to start playback."
+            )
+        }
+
+        if (contentUrl == null) {
+            releasePlayerHost(clearSelection = false)
+            playerUiState = PlayerUiState(
+                trackTitle = selected.title,
+                artist = selected.subtitle.takeIf { it != "Ready to play" }
+            )
+            return buildPlayerIdleView(
+                title = selected.title,
+                message = "Playback is unavailable for this item."
+            )
+        }
+
+        releasePlayerHost(clearSelection = false)
         val webView = WebView(this)
         webView.setBackgroundColor(Color.BLACK)
         webHost.configure(webView)
         playerBridge.attachToWebView(webView)
         playerWebView = webView
+        hasLoggedFirstBridgeEvent = false
+
+        Log.i(
+            TAG,
+            "Selected playable content: id=${selected.id}, title=${selected.title}, webUrl=${sanitizeUrlForLog(contentUrl)}"
+        )
 
         val playerRoot = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -542,8 +634,8 @@ class MainActivity : AppCompatActivity(),
         headerContainer.addView(playerStateView)
 
         // Use selected card context for initial display
-        val initialTitle = selectedCard?.title ?: "Preparing player..."
-        val initialArtist = selectedCard?.subtitle
+        val initialTitle = selected.title
+        val initialArtist = selected.subtitle.takeIf { it != "Ready to play" }
 
         playerTrackView = TextView(this).apply {
             text = initialTitle
@@ -601,32 +693,60 @@ class MainActivity : AppCompatActivity(),
         // Initialize player UI state with selected content
         updatePlayerUi(PlayerUiState(
             isLoading = true,
-            trackTitle = selectedCard?.title,
-            artist = selectedCard?.subtitle?.takeIf { it != "Ready to play" }
+            trackTitle = selected.title,
+            artist = initialArtist
         ))
 
-        val contentUrl = selectedCard?.webUrl
-        if (selectedCard == null) {
-            updatePlayerUi(
-                playerUiState.copy(
-                    isLoading = false,
-                    errorMessage = "Choose a track from Home, Search, or Library."
-                )
-            )
-        } else if (contentUrl.isNullOrBlank()) {
-            updatePlayerUi(
-                playerUiState.copy(
-                    isLoading = false,
-                    errorMessage = "Playback is unavailable for this item."
-                )
-            )
-        } else {
-            webHost.loadPlayer(webView, contentUrl)
+        Log.i(TAG, "Starting Player load for ${selected.id}")
+        val didStartLoad = webHost.loadPlayer(webView, contentUrl)
+        if (didStartLoad) {
+            startPlayerReadyTimeout(selected, contentUrl)
             webHost.getDiagnosticState().lastError?.let { error ->
                 updatePlayerUi(playerUiState.copy(isLoading = false, errorMessage = error))
             }
+        } else {
+            val failureReason = webHost.getDiagnosticState().lastError ?: "Player target was rejected."
+            Log.w(TAG, "Player load did not start: $failureReason")
+            updatePlayerUi(playerUiState.copy(isLoading = false, errorMessage = failureReason))
         }
         return playerRoot
+    }
+
+    private fun buildPlayerIdleView(title: String, message: String): View {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setBackgroundColor(0xFF050505.toInt())
+            setPadding(dp(48), dp(60), dp(48), dp(60))
+
+            addView(TextView(this@MainActivity).apply {
+                text = "IDLE"
+                setTextColor(0xFF777777.toInt())
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                letterSpacing = 0.05f
+                gravity = Gravity.CENTER
+            })
+
+            addView(TextView(this@MainActivity).apply {
+                text = title
+                setTextColor(Color.WHITE)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 26f)
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                gravity = Gravity.CENTER
+                maxLines = 2
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setPadding(0, dp(10), 0, dp(6))
+            })
+
+            addView(TextView(this@MainActivity).apply {
+                text = message
+                setTextColor(0xFFAAAAAA.toInt())
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                gravity = Gravity.CENTER
+                maxLines = 2
+            })
+        }
     }
 
     private fun updatePlayerUi(nextState: PlayerUiState) {
@@ -663,6 +783,68 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
+    private fun isPlayerVisibleWithPlayableSelection(): Boolean {
+        return currentScreen == AppScreen.PLAYER && !selectedCard?.webUrl.isNullOrBlank()
+    }
+
+    private fun releasePlayerHost(clearSelection: Boolean) {
+        cancelPlayerReadyTimeout()
+        playerWebView?.let { webView ->
+            runCatching {
+                webView.stopLoading()
+                playerBridge.detachFromWebView(webView)
+                webHost.clearSession(webView)
+                webView.destroy()
+            }.onFailure { error ->
+                Log.w(TAG, "Failed to release player WebView cleanly: ${error.message}")
+            }
+        }
+        playerWebView = null
+        playerStateView = null
+        playerTrackView = null
+        playerArtistView = null
+        playerErrorView = null
+        playerUiState = PlayerUiState()
+        hasLoggedFirstBridgeEvent = false
+        playerLoadToken += 1
+        if (clearSelection) {
+            selectedCard = null
+        }
+    }
+
+    private fun startPlayerReadyTimeout(card: ContentCardSpec, contentUrl: String) {
+        cancelPlayerReadyTimeout()
+        val token = ++playerLoadToken
+        val timeout = Runnable {
+            if (token != playerLoadToken || !isPlayerVisibleWithPlayableSelection()) return@Runnable
+            if (playerUiState.isReady || playerUiState.errorMessage != null) return@Runnable
+
+            val reason = "Player did not report ready within 15 seconds."
+            Log.w(
+                TAG,
+                "Player timeout: id=${card.id}, title=${card.title}, webUrl=${sanitizeUrlForLog(contentUrl)}, reason=$reason"
+            )
+            updatePlayerUi(playerUiState.copy(isLoading = false, errorMessage = reason))
+        }
+        playerTimeoutRunnable = timeout
+        playerTimeoutHandler.postDelayed(timeout, PLAYER_READY_TIMEOUT_MS)
+    }
+
+    private fun cancelPlayerReadyTimeout() {
+        playerTimeoutRunnable?.let(playerTimeoutHandler::removeCallbacks)
+        playerTimeoutRunnable = null
+    }
+
+    private fun logBridgeEvent(event: String) {
+        if (hasLoggedFirstBridgeEvent) {
+            Log.d(TAG, "Player bridge event: $event")
+            return
+        }
+
+        hasLoggedFirstBridgeEvent = true
+        Log.i(TAG, "First player bridge event: $event")
+    }
+
     private fun buildSettingsView(): View {
         val state = authGateway.getCurrentState()
         val appInfo = buildDiagnosticsBody(state)
@@ -680,9 +862,8 @@ class MainActivity : AppCompatActivity(),
             onClearCookies = { webHost.clearCookies() },
             onClearSession = {
                 authGateway.clearSession()
-                playerWebView?.let(webHost::clearSession)
+                releasePlayerHost(clearSelection = true)
                 lastBlockedNavigation = null
-                selectedCard = null
             },
             appInfo = appInfo
         )
@@ -884,7 +1065,7 @@ class MainActivity : AppCompatActivity(),
         val sessionId = state.sessionId
         if (sessionId == null) {
             if (screen == AppScreen.HOME || screen == AppScreen.LIBRARY) {
-                showContentMessage(screen, "Connecting...")
+                showContentMessage(screen, "Starting local session...")
             }
             return
         }
@@ -933,6 +1114,16 @@ class MainActivity : AppCompatActivity(),
         resources.displayMetrics
     ).toInt()
 
+    private fun sanitizeUrlForLog(url: String?): String {
+        if (url == null) return "null"
+        return try {
+            val uri = Uri.parse(url)
+            "${uri.scheme}://${uri.host}${uri.path ?: ""}"
+        } catch (e: Exception) {
+            "[malformed]"
+        }
+    }
+
     private fun buildDiagnosticsBody(state: AuthSessionState): String {
         val webViewState = webHost.getDiagnosticState()
 
@@ -965,5 +1156,6 @@ class MainActivity : AppCompatActivity(),
 
     companion object {
         private const val TAG = "MainActivity"
+        private const val PLAYER_READY_TIMEOUT_MS = 15_000L
     }
 }

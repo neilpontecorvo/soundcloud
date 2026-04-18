@@ -1,6 +1,7 @@
 package com.neilpontecorvo.soundcloudfiretv.webview
 
 import android.annotation.SuppressLint
+import android.net.Uri
 import android.os.Build
 import android.util.Log
 import android.webkit.CookieManager
@@ -132,28 +133,29 @@ class WebPlayerHostController(
      * @param url Optional selected content URL. It must be allowlisted and is
      * embedded through the controlled widget URL, never loaded as top-level web content.
      */
-    fun loadPlayer(webView: WebView, url: String? = null) {
+    fun loadPlayer(webView: WebView, url: String? = null): Boolean {
         val entryValidation = config.validateUrl(config.entryUrl)
         if (entryValidation is WebViewHostConfig.ValidationResult.Blocked) {
             lastLoadError = "Entry URL blocked: ${entryValidation.message}"
             Log.e(TAG, "Cannot load entry URL: ${entryValidation.message}")
-            return
+            return false
         }
 
         val widgetUrl = buildWidgetUrl(url)
         if (widgetUrl == null) {
             Log.e(TAG, "Cannot load selected content URL: not allowlisted")
-            return
+            return false
         }
 
         val widgetValidation = config.validateUrl(widgetUrl)
         if (widgetValidation is WebViewHostConfig.ValidationResult.Blocked) {
             lastLoadError = "Widget URL blocked: ${widgetValidation.message}"
             Log.e(TAG, "Cannot load widget URL: ${widgetValidation.message}")
-            return
+            return false
         }
 
-        Log.i(TAG, "Loading controlled player entry: ${config.entryUrl}")
+        Log.i(TAG, "Resolved controlled widget URL: ${sanitizeUrlForLog(widgetUrl)}")
+        Log.i(TAG, "Loading controlled player entry: ${sanitizeUrlForLog(config.entryUrl)}")
         lastLoadError = null
         webView.loadDataWithBaseURL(
             config.entryUrl,
@@ -162,6 +164,7 @@ class WebPlayerHostController(
             "UTF-8",
             config.entryUrl
         )
+        return true
     }
 
     /**
@@ -377,6 +380,16 @@ class WebPlayerHostController(
         .replace(">", "&gt;")
 
     private fun String.urlEncode(): String = URLEncoder.encode(this, "UTF-8")
+
+    private fun sanitizeUrlForLog(url: String?): String {
+        if (url == null) return "null"
+        return try {
+            val uri = Uri.parse(url)
+            "${uri.scheme}://${uri.host}${uri.path ?: ""}"
+        } catch (e: Exception) {
+            "[malformed]"
+        }
+    }
 
     /**
      * Diagnostic state for WebView display.
