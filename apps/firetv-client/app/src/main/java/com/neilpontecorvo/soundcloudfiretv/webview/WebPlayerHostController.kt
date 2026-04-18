@@ -286,10 +286,23 @@ class WebPlayerHostController(
                   <iframe id="providerPlayer" title="Player" allow="autoplay" src="$escapedWidgetUrl"></iframe>
                 </div>
               </div>
-              <script src="https://w.soundcloud.com/player/api.js"></script>
+              <script>
+                try {
+                  console.log('fire-tv: pre-api inline block executed');
+                  if (window.NativePlayer && window.NativePlayer.reportBootstrap) {
+                    window.NativePlayer.reportBootstrap('pre-api-inline');
+                  }
+                } catch (e) {}
+              </script>
+              <script src="https://w.soundcloud.com/player/api.js" onload="try{console.log('fire-tv: widget api onload fired');if(window.NativePlayer&&window.NativePlayer.reportBootstrap)window.NativePlayer.reportBootstrap('widget-api-onload');}catch(e){}" onerror="try{console.log('fire-tv: widget api onerror fired');if(window.NativePlayer&&window.NativePlayer.reportBootstrap)window.NativePlayer.reportBootstrap('widget-api-onerror');}catch(e){}"></script>
               <script>
                 (function() {
-                  try { console.log('fire-tv: inline player script started'); } catch (e) {}
+                  try {
+                    console.log('fire-tv: inline player script started');
+                    if (window.NativePlayer && window.NativePlayer.reportBootstrap) {
+                      window.NativePlayer.reportBootstrap('post-api-inline');
+                    }
+                  } catch (e) {}
                   var iframe = document.getElementById('providerPlayer');
                   var widget = null;
                   var isPlaying = false;

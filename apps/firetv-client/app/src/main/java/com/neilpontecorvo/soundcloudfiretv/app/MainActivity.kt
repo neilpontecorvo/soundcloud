@@ -245,10 +245,35 @@ class MainActivity : AppCompatActivity(),
         }
         runOnUiThread {
             updatePlayerUi(playerUiState.copy(isLoading = false))
+            snapshotPlayerDom("onPageFinished")
             if (currentScreen == AppScreen.SETTINGS) {
                 refreshSettingsBody(authGateway.getCurrentState())
             }
         }
+    }
+
+    private fun snapshotPlayerDom(source: String) {
+        val wv = playerWebView ?: return
+        Log.i(TAG, "DocSnapshot[$source] webView.url=${sanitizeUrlForLog(wv.url)} title='${wv.title}'")
+        wv.evaluateJavascript("document.readyState") { v -> Log.i(TAG, "DocSnapshot[$source] readyState=$v") }
+        wv.evaluateJavascript("location.href") { v -> Log.i(TAG, "DocSnapshot[$source] location.href=$v") }
+        wv.evaluateJavascript(
+            "(function(){try{return JSON.stringify({len:document.documentElement.outerHTML.length, head:document.documentElement.outerHTML.slice(0,500)});}catch(e){return 'err:'+e.message;}})()"
+        ) { v -> Log.i(TAG, "DocSnapshot[$source] outerHTML=$v") }
+        wv.evaluateJavascript(
+            "(function(){return JSON.stringify({hasSC:!!window.SC, hasWidget:!!(window.SC&&window.SC.Widget), hasNative:!!window.NativePlayer, hasHost:!!window.FireTvPlayerHost});})()"
+        ) { v -> Log.i(TAG, "DocSnapshot[$source] globals=$v") }
+    }
+
+    private var loggedWebViewEnvOnce = false
+    private fun logWebViewEnvironment() {
+        if (loggedWebViewEnvOnce) return
+        loggedWebViewEnvOnce = true
+        val pkg = runCatching { WebView.getCurrentWebViewPackage() }.getOrNull()
+        Log.i(
+            TAG,
+            "WebView env: manufacturer=${android.os.Build.MANUFACTURER} model=${android.os.Build.MODEL} sdk=${android.os.Build.VERSION.SDK_INT} wvPkg=${pkg?.packageName} wvVer=${pkg?.versionName}"
+        )
     }
 
     override fun onLoadError(url: String?, errorCode: Int, description: String) {
@@ -710,7 +735,10 @@ class MainActivity : AppCompatActivity(),
         ))
 
         Log.i(TAG, "Starting Player load for ${selected.id}")
+        logWebViewEnvironment()
+        Log.i(TAG, "Player load method: loadDataWithBaseURL(baseUrl=${webHost.getEntryUrl()})")
         val didStartLoad = webHost.loadPlayer(webView, contentUrl)
+        Log.i(TAG, "Post-load webView.url snapshot: ${sanitizeUrlForLog(webView.url)}")
         if (didStartLoad) {
             startPlayerReadyTimeout(selected, contentUrl)
             webHost.getDiagnosticState().lastError?.let { error ->

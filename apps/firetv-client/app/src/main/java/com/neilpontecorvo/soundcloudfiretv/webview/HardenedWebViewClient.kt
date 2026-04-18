@@ -84,7 +84,7 @@ class HardenedWebViewClient(
         super.onPageStarted(view, url, favicon)
         isLoading = true
         currentUrl = sanitizeUrlForStorage(url)
-        Log.d(TAG, "Page started: ${sanitizeUrlForLog(url)}")
+        Log.i(TAG, "Page started: ${sanitizeUrlForLog(url)}")
         listener?.onPageStarted(sanitizeUrlForStorage(url) ?: "unknown")
     }
 
@@ -92,7 +92,7 @@ class HardenedWebViewClient(
         super.onPageFinished(view, url)
         isLoading = false
         currentUrl = sanitizeUrlForStorage(url)
-        Log.d(TAG, "Page finished: ${sanitizeUrlForLog(url)}")
+        Log.i(TAG, "Page finished: ${sanitizeUrlForLog(url)}")
         listener?.onPageFinished(sanitizeUrlForStorage(url) ?: "unknown")
     }
 

@@ -379,3 +379,24 @@ When resuming work:
   - `fire-tv: inline player script started` absent → inline script never ran; investigate CSP `'unsafe-inline'` on Amazon WebView.
   - Sentinels + API both present but no READY → widget postMessage / iframe origin issue on Amazon WebView.
 - Docs check: README.md / docs/architecture.md / docs/roadmap.md / services/api/README.md not edited this cycle — the user's scope constraint was "work only on the current blocker." Doc alignment review deferred until Player success path is green.
+
+### Entry 010
+- Status: document-lifecycle instrumentation added; device validation pending
+- Summary: Entry 009 sentinels (WebConsole + inline console.log) did not appear in the on-device trace. Failure is pre-widget: it occurs before inline bootstrap execution. Added targeted instrumentation to expose the top-level document state instead of the widget state.
+- Changes:
+  - `MainActivity.snapshotPlayerDom(source)` — called from `onPageFinished`, uses `WebView.evaluateJavascript` to log `document.readyState`, `location.href`, `document.documentElement.outerHTML` length + first 500 chars, and presence of `window.SC`, `window.SC.Widget`, `window.NativePlayer`, `window.FireTvPlayerHost`. Tagged `MainActivity` as `DocSnapshot[onPageFinished] ...`.
+  - `MainActivity.logWebViewEnvironment()` — logs `Build.MANUFACTURER`, `Build.MODEL`, SDK int, and the installed WebView implementation package+version via `WebView.getCurrentWebViewPackage()`. Runs once per session before Player load.
+  - `MainActivity` — logs `Post-load webView.url snapshot` immediately after `loadPlayer` returns, and explicitly logs `Player load method: loadDataWithBaseURL(baseUrl=...)` so the load pathway cannot be misread from logs alone.
+  - `HardenedWebViewClient.onPageStarted` / `onPageFinished` — escalated from `Log.d` to `Log.i` so page lifecycle is unmistakable in the app-only trace.
+  - `PlayerBridge.reportBootstrap(stage)` — new native-side JS interface method (early beacon, runs before SC.Widget access). Logged at `Log.i` on `PlayerBridge`. The inline HTML now calls `reportBootstrap('pre-api-inline')` before the external widget API script, `reportBootstrap('widget-api-onload')` / `reportBootstrap('widget-api-onerror')` on the api.js script tag, and `reportBootstrap('post-api-inline')` after. This separates "inline HTML executed" from "external widget API loaded" from "bindWidget reached."
+  - Deduplicated the previously duplicate `<script src="w.soundcloud.com/player/api.js">` tag — now single-sourced with onload/onerror handlers.
+  - `PlayerBridge.reportLoadingState` escalated `Log.d` -> `Log.i` so the first JS->native hop is visible.
+- No allowlist change, no UI change, no backend change, no bridge surface widening (beyond one new informational method).
+- Build: `./gradlew :app:assembleDebug` PASSED (14s incremental).
+- Pending (device): install APK, disable VPN on Fire TV, `adb logcat -c`, filter to `MainActivity WebPlayerHostController HardenedWebViewClient PlayerBridge`, select `Local Debug Track`, capture trace.
+- Expected decision tree from the next device trace:
+  1. `Page finished` + `DocSnapshot outerHTML=` shows the full native-owned HTML we built → top-level document is what we expected; failure is inside inline script / CSP. Fix: strip or relax CSP meta.
+  2. `Page finished` + `DocSnapshot outerHTML=` shows a redirected SoundCloud page (login, 404, generic page) → `loadDataWithBaseURL` is not behaving as intended on Amazon WebView under this baseUrl, or the baseUrl is being treated as the top-level URL. Fix: change the baseUrl to a non-navigable synthetic scheme or use `about:blank` as baseUrl.
+  3. `Page finished` never fires → WebView stalled on a subresource or SSL error. Fix via `onLoadError` / SSL surface.
+  4. `DocSnapshot globals=` shows `hasNative:false` → bridge never attached on this document; `addJavascriptInterface` timing issue relative to `loadDataWithBaseURL`.
+  5. `reportBootstrap('pre-api-inline')` fires but no `widget-api-onload` → external `w.soundcloud.com/player/api.js` is being fetched and either blocked by `shouldInterceptRequest` (look for blocked-subresource warn) or returning non-script content.

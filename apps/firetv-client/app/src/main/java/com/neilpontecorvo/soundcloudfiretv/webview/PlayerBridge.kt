@@ -81,8 +81,18 @@ class PlayerBridge(
      */
     @JavascriptInterface
     fun reportLoadingState(isLoading: Boolean) {
-        Log.d(TAG, "JS -> Native: loading state changed: isLoading=$isLoading")
+        Log.i(TAG, "JS -> Native: loading state changed: isLoading=$isLoading")
         listener?.onLoadingStateChanged(isLoading)
+    }
+
+    /**
+     * Early beacon: called by the inline bootstrap script the instant it executes,
+     * before any SC.Widget access. If this never fires, the inline script itself
+     * did not run (CSP / loadDataWithBaseURL / WebView policy).
+     */
+    @JavascriptInterface
+    fun reportBootstrap(stage: String?) {
+        Log.i(TAG, "JS -> Native: bootstrap stage=$stage")
     }
 
     /**
