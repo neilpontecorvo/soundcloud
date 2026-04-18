@@ -400,3 +400,19 @@ When resuming work:
   3. `Page finished` never fires → WebView stalled on a subresource or SSL error. Fix via `onLoadError` / SSL surface.
   4. `DocSnapshot globals=` shows `hasNative:false` → bridge never attached on this document; `addJavascriptInterface` timing issue relative to `loadDataWithBaseURL`.
   5. `reportBootstrap('pre-api-inline')` fires but no `widget-api-onload` → external `w.soundcloud.com/player/api.js` is being fetched and either blocked by `shouldInterceptRequest` (look for blocked-subresource warn) or returning non-script content.
+
+### Entry 011
+- Status: targeted baseUrl fix applied; device validation pending
+- Summary: Entry 010 device trace resolved the branch decisively. `DocSnapshot[onPageFinished]` showed `title='Webpage not available'`, `location.href=chrome-error://chromewebdata/`, and `outerHTML` contained the Chromium error page, not the injected bootstrap HTML. `hasNative:true` was a red herring — the interface object is attached to the WebView, not to any particular document. No `reportBootstrap(...)` beacons appeared, consistent with the injected HTML never becoming the live document.
+- Root cause identified: Amazon WebView is treating the `https://soundcloud.com/tv-player-host` passed to `loadDataWithBaseURL(baseUrl=...)` as a real top-level navigation target. That fabricated URL does not resolve, the top-level navigation collapses into Chromium's error page, and the injected HTML is discarded.
+- Fix (this entry, single change, per the user's "do not change two problems at once" instruction):
+  - `WebPlayerHostController.loadPlayer` — switched both `baseUrl` and `historyUrl` arguments of `loadDataWithBaseURL` from `config.entryUrl` to `about:blank` (new `INJECTED_HOST_BASE_URL` companion constant with doc comment explaining why).
+  - `config.entryUrl` is still validated and still functions as an allowlist/diagnostic concept; it is simply no longer the navigation base.
+- Not changed this cycle (deferred by explicit instruction): widget URL construction — `buildWidgetUrl(null)` currently returns the bare `playerWidgetUrl` and even the `buildWidgetUrl(nonNull)` path may not have a correctly encoded track target. This is the next probable blocker after baseUrl is fixed, but we do not change both at once.
+- Build: `./gradlew :app:assembleDebug` PASSED (4s incremental).
+- Pending (device): install new APK, disable VPN, `adb logcat -c`, run standard app-only filter, select `Local Debug Track`.
+- Expected result:
+  - No `chrome-error://chromewebdata/` in the DocSnapshot.
+  - `DocSnapshot[onPageFinished] outerHTML=` now contains the injected bootstrap HTML.
+  - `PlayerBridge: JS -> Native: bootstrap stage=pre-api-inline` appears.
+  - Either `widget-api-onload` follows (then we are at the widget-URL-correctness stage) or we learn exactly which subresource is blocked.

@@ -155,14 +155,14 @@ class WebPlayerHostController(
         }
 
         Log.i(TAG, "Resolved controlled widget URL: ${sanitizeUrlForLog(widgetUrl)}")
-        Log.i(TAG, "Loading controlled player entry: ${sanitizeUrlForLog(config.entryUrl)}")
+        Log.i(TAG, "Loading controlled player entry via about:blank baseUrl (config entry still used for allowlist: ${sanitizeUrlForLog(config.entryUrl)})")
         lastLoadError = null
         webView.loadDataWithBaseURL(
-            config.entryUrl,
+            INJECTED_HOST_BASE_URL,
             buildControlledPlayerHtml(widgetUrl),
             "text/html",
             "UTF-8",
-            config.entryUrl
+            INJECTED_HOST_BASE_URL
         )
         return true
     }
@@ -423,5 +423,10 @@ class WebPlayerHostController(
 
     companion object {
         private const val TAG = "WebPlayerHostController"
+        // Non-navigating baseUrl for loadDataWithBaseURL. Amazon WebView treats a real
+        // https baseUrl as a live top-level navigation, which collapses into the Chromium
+        // error page and discards the injected HTML. about:blank keeps the injected
+        // document as the actual document while still permitting absolute https subresources.
+        private const val INJECTED_HOST_BASE_URL = "about:blank"
     }
 }
