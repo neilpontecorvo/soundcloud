@@ -140,6 +140,11 @@ class MainActivity : AppCompatActivity(),
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         val action = RemoteInputHandler.mapKeyCode(keyCode)
 
+        if (action.isTransportAction()) {
+            val handled = handleTransportAction(action, keyCode, event?.repeatCount ?: 0)
+            if (handled) return true
+        }
+
         detailReturnScreen?.let { returnScreen ->
             if (action == RemoteAction.BACK) {
                 navigateTo(returnScreen)
@@ -149,11 +154,6 @@ class MainActivity : AppCompatActivity(),
 
         if (action == RemoteAction.BACK && currentScreen != AppScreen.HOME) {
             navigateTo(AppScreen.HOME)
-            return true
-        }
-
-        if (action == RemoteAction.PLAY_PAUSE && currentScreen == AppScreen.PLAYER) {
-            playerWebView?.let { playerBridge.sendTogglePlayPause(it) }
             return true
         }
 
@@ -167,6 +167,79 @@ class MainActivity : AppCompatActivity(),
         }
 
         return super.onKeyDown(keyCode, event)
+    }
+
+    private fun handleTransportAction(action: RemoteAction, keyCode: Int, repeatCount: Int): Boolean {
+        val keyName = KeyEvent.keyCodeToString(keyCode)
+        val selected = selectedCard
+        val activeWebView = playerWebView
+        val hasPlayableSelection = !selected?.webUrl.isNullOrBlank()
+        val hasActivePlayer = activeWebView != null && hasPlayableSelection
+        val canHandleTransport = currentScreen == AppScreen.PLAYER || hasActivePlayer
+
+        Log.i(
+            TAG,
+            "Transport key received: key=$keyName action=$action screen=$currentScreen activePlayer=$hasActivePlayer selectedId=${selected?.id ?: "none"}"
+        )
+
+        if (!canHandleTransport) {
+            Log.i(TAG, "Transport key ignored: reason=outside_player key=$keyName action=$action")
+            return false
+        }
+
+        if (activeWebView == null || !hasPlayableSelection) {
+            Log.i(TAG, "Transport key ignored: reason=no_active_player key=$keyName action=$action")
+            return true
+        }
+
+        if (repeatCount > 0) {
+            Log.d(TAG, "Transport key repeat ignored: key=$keyName action=$action repeat=$repeatCount")
+            return true
+        }
+
+        when (action) {
+            RemoteAction.PLAY -> {
+                Log.i(TAG, "Transport dispatch: command=play selectedId=${selected?.id}")
+                playerBridge.sendPlay(activeWebView)
+            }
+            RemoteAction.PAUSE -> {
+                Log.i(TAG, "Transport dispatch: command=pause selectedId=${selected?.id}")
+                playerBridge.sendPause(activeWebView)
+            }
+            RemoteAction.PLAY_PAUSE -> {
+                Log.i(TAG, "Transport dispatch: command=toggle selectedId=${selected?.id}")
+                playerBridge.sendTogglePlayPause(activeWebView)
+            }
+            RemoteAction.NEXT -> {
+                Log.i(TAG, "Transport dispatch: command=next selectedId=${selected?.id}")
+                playerBridge.sendNext(activeWebView)
+            }
+            RemoteAction.PREVIOUS -> {
+                Log.i(TAG, "Transport dispatch: command=previous selectedId=${selected?.id}")
+                playerBridge.sendPrevious(activeWebView)
+            }
+            RemoteAction.FAST_FORWARD,
+            RemoteAction.REWIND -> {
+                Log.i(
+                    TAG,
+                    "Transport command unsupported: key=$keyName action=$action reason=no reliable seek bridge currently defined"
+                )
+            }
+            else -> return false
+        }
+
+        return true
+    }
+
+    private fun RemoteAction.isTransportAction(): Boolean = when (this) {
+        RemoteAction.PLAY,
+        RemoteAction.PAUSE,
+        RemoteAction.PLAY_PAUSE,
+        RemoteAction.NEXT,
+        RemoteAction.PREVIOUS,
+        RemoteAction.FAST_FORWARD,
+        RemoteAction.REWIND -> true
+        else -> false
     }
 
     // ContentCardSelectionListener implementation
