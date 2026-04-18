@@ -3,6 +3,7 @@ package com.neilpontecorvo.soundcloudfiretv.webview
 import android.annotation.SuppressLint
 import android.net.Uri
 import android.os.Build
+import android.util.Base64
 import android.util.Log
 import android.webkit.CookieManager
 import android.webkit.WebSettings
@@ -155,13 +156,14 @@ class WebPlayerHostController(
         }
 
         Log.i(TAG, "Resolved controlled widget URL: ${sanitizeUrlForLog(widgetUrl)}")
-        Log.i(TAG, "Loading controlled player entry via webView.loadData URL-encoded (no base URL; config entry retained only for allowlist: ${sanitizeUrlForLog(config.entryUrl)})")
+        Log.i(TAG, "Loading controlled player entry via webView.loadData base64 (no base URL; config entry retained only for allowlist: ${sanitizeUrlForLog(config.entryUrl)})")
         lastLoadError = null
-        webView.loadData(
-            buildControlledPlayerHtml(widgetUrl).urlEncode(),
-            "text/html",
-            "utf-8"
+        val html = buildControlledPlayerHtml(widgetUrl)
+        val htmlBase64 = Base64.encodeToString(
+            html.toByteArray(Charsets.UTF_8),
+            Base64.NO_PADDING or Base64.NO_WRAP
         )
+        webView.loadData(htmlBase64, "text/html; charset=utf-8", "base64")
         return true
     }
 

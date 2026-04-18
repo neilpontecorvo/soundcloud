@@ -504,3 +504,20 @@ When resuming work:
   - `bootstrap stage=post-api-inline` appears.
   - `bootstrap stage=widget-api-onload` or `bootstrap stage=widget-api-onerror`.
 - Fallback if still no beacons: switch to base64-encoded `loadData` (`Base64.encodeToString(html.toByteArray(), Base64.NO_PADDING)`, mime `"text/html"`, encoding `"base64"`), or switch to `WebViewAssetLoader` with `appassets.androidplatform.net`.
+
+### Entry 017
+- Status: base64 `loadData` applied; device validation pending
+- Summary: Entry 016 device trace exposed an actual parse fault from URL-encoded `loadData`. Web console showed `Uncaught SyntaxError: Unexpected token 'try'` and `Unexpected token '+'`; `DocSnapshot outerHTML` showed `++<meta...>` style garbage in the body. Amazon WebView is decoding `URLEncoder.encode(...)` output incorrectly — `+` is being left in place instead of being decoded back to a space. Base64 encoding sidesteps the whole +/space ambiguity.
+- Fix (exact form specified by user):
+  - `WebPlayerHostController.loadPlayer` — replaced URL-encoded `loadData(...)` with `Base64.encodeToString(html.toByteArray(Charsets.UTF_8), Base64.NO_PADDING or Base64.NO_WRAP)` and `webView.loadData(htmlBase64, "text/html; charset=utf-8", "base64")`.
+  - Added import `android.util.Base64`.
+  - Log line updated to `webView.loadData base64`.
+- Unchanged: CSP still removed (diagnostic state preserved); widget URL construction deferred; HardenedWebViewClient main-frame data: exemption active; allowlist unchanged; bridge surface unchanged; instrumentation unchanged.
+- Build: `./gradlew :app:assembleDebug` PASSED (10s incremental).
+- Expected next trace:
+  - No `SyntaxError` in `WebConsole[...]` lines.
+  - `DocSnapshot[onPageFinished] outerHTML=` shows clean `<!doctype html><html>...` with no `++` noise.
+  - `bootstrap stage=pre-api-inline` appears.
+  - `bootstrap stage=post-api-inline` appears.
+  - Either `bootstrap stage=widget-api-onload` or `bootstrap stage=widget-api-onerror`.
+- After that, the next likely blocker is either widget API load (if `widget-api-onerror`) or widget URL correctness (if `widget-api-onload` but no READY).
