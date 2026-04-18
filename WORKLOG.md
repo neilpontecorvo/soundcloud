@@ -532,3 +532,19 @@ When resuming work:
 - Build: `./gradlew :app:assembleDebug` PASSED (7s incremental).
 - Pending (device): install APK, VPN off, standard app-only filter, select `Local Debug Track`. Confirm `JS -> Native: player ready` still fires with CSP restored.
 - Completion status update: Player runtime on physical Fire TV is now unblocked at the readiness path. The remaining work is widget URL correctness (content-specific playback), secondary polish, and cleanup.
+
+### Entry 019
+- Status: two-region Player layout implemented; device validation pending
+- Summary: Player screen was taking the full window, preventing users from seeing or scrolling additional tracks when multiple items were in a section. Refactored to a 40/60 weight split with the WebView in the top region and a native scrollable queue list in the bottom region.
+- Changes:
+  - `ContentCardSelectionListener` (ScreenRenderer.kt) — added default method `onCardSelectedFromSection(card, sectionCards)` that delegates to `onCardSelected`. Backward-compatible; existing listeners automatically inherit.
+  - `ScreenRenderer.buildMediaCard` — takes `sectionCards: List<ContentCardSpec>` parameter; calls `onCardSelectedFromSection(card, sectionCards)` on click instead of `onCardSelected(card)`.
+  - `MainActivity.playerQueueCards` — new field; cleared in `releasePlayerHost`.
+  - `MainActivity.onCardSelectedFromSection` — new override; captures sibling cards filtered to playable items (`webUrl` non-null), stores as `playerQueueCards`. Falls back to wrapping the selected card alone.
+  - `MainActivity.buildPlayerView` — top region (weight 2/5, ~40%): compact header + WebView. Bottom region (weight 3/5, ~60%): `ScrollView` containing `LinearLayout` with "Up Next" header and one `buildQueueRow` per item in `playerQueueCards`. Active row gets an orange left bar + bold title; D-pad chaining via `nextFocusUpId`/`nextFocusDownId`; focus initially on active row.
+  - `MainActivity.buildQueueRow` — new helper: focusable row with orange active indicator bar, title, artist subtitle (conditionally), duration metadata; background transitions on focus/active state.
+  - Selecting a different queue row: sets `selectedCard = newCard`, preserves existing `playerQueueCards`, calls `navigateTo(AppScreen.PLAYER)` which triggers `buildPlayerView`. The new `selected.id != lastLoadedPlayableId` mismatch causes a fresh WebView load for the new track; `releasePlayerHost` runs first (destroys old WebView cleanly).
+- Playback bridge/readiness code unchanged.
+- Build: `./gradlew :app:assembleDebug` PASSED (28s).
+- Pending (device): install APK, select any multi-item section from Library/Home.
+- Success condition: player visible in top 40%, multiple tracks visible below, D-pad scrolls list, selecting another track updates playback.

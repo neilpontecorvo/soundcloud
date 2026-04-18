@@ -42,6 +42,9 @@ data class ScreenViewModel(
  */
 interface ContentCardSelectionListener {
     fun onCardSelected(card: ContentCardSpec)
+    fun onCardSelectedFromSection(card: ContentCardSpec, sectionCards: List<ContentCardSpec>) {
+        onCardSelected(card)
+    }
 }
 
 class ScreenRenderer(
@@ -124,7 +127,7 @@ class ScreenRenderer(
 
         var isFirst = true
         section.cards.forEach { card ->
-            val cardView = buildMediaCard(card)
+            val cardView = buildMediaCard(card, section.cards)
             if (isFirst) {
                 onFirstFocusable(cardView)
                 isFirst = false
@@ -136,7 +139,7 @@ class ScreenRenderer(
         return railContainer
     }
 
-    private fun buildMediaCard(card: ContentCardSpec): View {
+    private fun buildMediaCard(card: ContentCardSpec, sectionCards: List<ContentCardSpec> = emptyList()): View {
         val cardWidth = dp(220)
         val cardHeight = dp(160)
         val artworkHeight = dp(90)
@@ -154,7 +157,7 @@ class ScreenRenderer(
             }
             // Wire up click to selection listener
             setOnClickListener {
-                cardSelectionListener?.onCardSelected(card)
+                cardSelectionListener?.onCardSelectedFromSection(card, sectionCards)
             }
         }
 

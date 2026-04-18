@@ -92,6 +92,7 @@ class MainActivity : AppCompatActivity(),
 
     // Selected content context for player
     private var selectedCard: ContentCardSpec? = null
+    private var playerQueueCards: List<ContentCardSpec> = emptyList()
     private var detailReturnScreen: AppScreen? = null
     private var currentSearchQuery: String = ""
 
@@ -170,7 +171,13 @@ class MainActivity : AppCompatActivity(),
 
     // ContentCardSelectionListener implementation
     override fun onCardSelected(card: ContentCardSpec) {
+        onCardSelectedFromSection(card, emptyList())
+    }
+
+    override fun onCardSelectedFromSection(card: ContentCardSpec, sectionCards: List<ContentCardSpec>) {
         selectedCard = card
+        playerQueueCards = sectionCards.filter { !it.webUrl.isNullOrBlank() }
+            .ifEmpty { listOfNotNull(card.takeIf { !it.webUrl.isNullOrBlank() }) }
         if (!card.webUrl.isNullOrBlank()) {
             navigateTo(AppScreen.PLAYER)
             return
@@ -665,13 +672,28 @@ class MainActivity : AppCompatActivity(),
         val playerRoot = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(0xFF050505.toInt())
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
         }
 
-        // Now playing header - show selected content context
+        // ── TOP REGION (40% of screen): compact header + WebView ────────────
+        val topRegion = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(0xFF050505.toInt())
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                2f   // weight 2 of 5 total = 40%
+            )
+        }
+
+        // Compact now-playing header
         val headerContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(0xFF0A0A0A.toInt())
-            setPadding(dp(32), dp(24), dp(32), dp(24))
+            setPadding(dp(32), dp(14), dp(32), dp(12))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -681,31 +703,30 @@ class MainActivity : AppCompatActivity(),
         playerStateView = TextView(this).apply {
             text = "LOADING"
             setTextColor(0xFFFF6600.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             letterSpacing = 0.05f
         }
         headerContainer.addView(playerStateView)
 
-        // Use selected card context for initial display
         val initialTitle = selected.title
         val initialArtist = selected.subtitle.takeIf { it != "Ready to play" }
 
         playerTrackView = TextView(this).apply {
             text = initialTitle
             setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 28f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
             setTypeface(typeface, android.graphics.Typeface.BOLD)
-            maxLines = 2
+            maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
-            setPadding(0, dp(8), 0, dp(4))
+            setPadding(0, dp(4), 0, dp(2))
         }
         headerContainer.addView(playerTrackView)
 
         playerArtistView = TextView(this).apply {
             text = initialArtist ?: ""
             setTextColor(0xFFAAAAAA.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             maxLines = 1
             visibility = if (initialArtist.isNullOrBlank()) View.GONE else View.VISIBLE
         }
@@ -714,35 +735,89 @@ class MainActivity : AppCompatActivity(),
         playerErrorView = TextView(this).apply {
             text = ""
             setTextColor(0xFFFF6666.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-            maxLines = 2
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            maxLines = 1
             visibility = View.GONE
-            setPadding(0, dp(8), 0, 0)
+            setPadding(0, dp(4), 0, 0)
         }
         headerContainer.addView(playerErrorView)
 
-        playerRoot.addView(headerContainer)
+        topRegion.addView(headerContainer)
 
-        // WebView container
-        val webViewContainer = FrameLayout(this).apply {
-            setBackgroundColor(0xFF0D0D0D.toInt())
-            setPadding(dp(32), dp(16), dp(32), dp(24))
+        val webViewFrame = FrameLayout(this).apply {
+            setBackgroundColor(0xFF111111.toInt())
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 0,
                 1f
             )
-        }
-
-        val webViewFrame = FrameLayout(this).apply {
-            setBackgroundColor(0xFF111111.toInt())
             addView(webView, FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
             ))
         }
-        webViewContainer.addView(webViewFrame)
-        playerRoot.addView(webViewContainer)
+        topRegion.addView(webViewFrame)
+        playerRoot.addView(topRegion)
+
+        // ── BOTTOM REGION (60% of screen): native scrollable track list ──────
+        val bottomRegion = ScrollView(this).apply {
+            setBackgroundColor(0xFF0A0A0A.toInt())
+            isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                3f   // weight 3 of 5 total = 60%
+            )
+        }
+
+        val listContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(32), dp(8), dp(32), dp(32))
+        }
+        bottomRegion.addView(listContainer)
+
+        if (playerQueueCards.isNotEmpty()) {
+            val queueHeader = TextView(this).apply {
+                text = "Up Next"
+                setTextColor(0xFF888888.toInt())
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                letterSpacing = 0.08f
+                setPadding(0, dp(8), 0, dp(8))
+            }
+            listContainer.addView(queueHeader)
+
+            val queueRows = mutableListOf<View>()
+            playerQueueCards.forEach { queueCard ->
+                val isActive = queueCard.id == selected.id
+                val row = buildQueueRow(queueCard, isActive) {
+                    if (queueCard.id != selectedCard?.id) {
+                        selectedCard = queueCard
+                        playerQueueCards = playerQueueCards  // preserve queue
+                        navigateTo(AppScreen.PLAYER)
+                    }
+                }
+                queueRows.add(row)
+                listContainer.addView(row)
+            }
+
+            // Wire D-pad chaining within list rows
+            for (i in queueRows.indices) {
+                queueRows[i].nextFocusUpId =
+                    if (i > 0) queueRows[i - 1].id else queueRows[i].id
+                queueRows[i].nextFocusDownId =
+                    if (i < queueRows.lastIndex) queueRows[i + 1].id else queueRows[i].id
+            }
+
+            // Give focus to the active row on first compose
+            bottomRegion.post {
+                queueRows.getOrNull(playerQueueCards.indexOfFirst { it.id == selected.id })
+                    ?.requestFocus()
+            }
+        }
+
+        playerRoot.addView(bottomRegion)
 
         // Initialize player UI state with selected content
         updatePlayerUi(PlayerUiState(
@@ -773,6 +848,77 @@ class MainActivity : AppCompatActivity(),
             updatePlayerUi(playerUiState.copy(isLoading = false, errorMessage = failureReason))
         }
         return playerRoot
+    }
+
+    private fun buildQueueRow(card: ContentCardSpec, isActive: Boolean, onClick: () -> Unit): View {
+        val row = LinearLayout(this).apply {
+            id = View.generateViewId()
+            orientation = LinearLayout.HORIZONTAL
+            isFocusable = true
+            isFocusableInTouchMode = true
+            isClickable = true
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setBackgroundColor(if (isActive) 0xFF1E1E1E.toInt() else Color.TRANSPARENT)
+            setOnClickListener { onClick() }
+            setOnFocusChangeListener { v, hasFocus ->
+                v.setBackgroundColor(
+                    when {
+                        hasFocus -> 0xFF2E2E2E.toInt()
+                        isActive -> 0xFF1E1E1E.toInt()
+                        else -> Color.TRANSPARENT
+                    }
+                )
+            }
+        }
+
+        val activeBar = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(3), LinearLayout.LayoutParams.MATCH_PARENT).apply {
+                rightMargin = dp(12)
+            }
+            setBackgroundColor(if (isActive) 0xFFFF6600.toInt() else Color.TRANSPARENT)
+        }
+        row.addView(activeBar)
+
+        val textBlock = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        textBlock.addView(TextView(this).apply {
+            text = card.title
+            setTextColor(if (isActive) Color.WHITE else 0xFFCCCCCC.toInt())
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            if (isActive) setTypeface(typeface, android.graphics.Typeface.BOLD)
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        })
+
+        val artist = card.subtitle.takeIf { it.isNotBlank() && it != "Ready to play" }
+        if (artist != null) {
+            textBlock.addView(TextView(this).apply {
+                text = artist
+                setTextColor(0xFF777777.toInt())
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            })
+        }
+        row.addView(textBlock)
+
+        if (card.metadata != null) {
+            row.addView(TextView(this).apply {
+                text = card.metadata
+                setTextColor(0xFF555555.toInt())
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                setPadding(dp(12), 0, 0, 0)
+            })
+        }
+
+        return row
     }
 
     private fun buildPlayerIdleView(title: String, message: String): View {
@@ -865,6 +1011,7 @@ class MainActivity : AppCompatActivity(),
         Log.i(TAG, "Player disposed (lastLoadedId=$lastLoadedPlayableId)")
         playerWebView = null
         lastLoadedPlayableId = null
+        playerQueueCards = emptyList()
         playerStateView = null
         playerTrackView = null
         playerArtistView = null
