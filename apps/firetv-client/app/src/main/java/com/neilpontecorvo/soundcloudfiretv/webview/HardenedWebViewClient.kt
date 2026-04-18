@@ -54,19 +54,37 @@ class HardenedWebViewClient(
             return false
         }
 
+        // Any further top-level navigation away from the controlled injected document is
+        // blocked unconditionally — even to allowlisted hosts. The player host is a
+        // data: document; replacing it with any real page destroys the JS bridge and
+        // the SC.Widget instance. Subframe / iframe navigation (e.g. the widget iframe)
+        // does not go through shouldOverrideUrlLoading.
+        if (request?.isForMainFrame == true) {
+            Log.w(TAG, "Blocked top-level navigation away from controlled host: ${sanitizeUrlForLog(url)}")
+            lastBlockedUrl = sanitizeUrlForStorage(url)
+            lastBlockedReason = WebViewHostConfig.BlockReason.DISALLOWED_HOST
+            listener?.onNavigationBlocked(
+                sanitizeUrlForStorage(url) ?: "unknown",
+                WebViewHostConfig.BlockReason.DISALLOWED_HOST,
+                "Top-level navigation away from controlled host blocked"
+            )
+            return true
+        }
+
+        // Subframe navigation: apply host allowlist as usual.
         val result = config.validateUrl(url)
 
         return when (result) {
             is WebViewHostConfig.ValidationResult.Allowed -> {
-                Log.d(TAG, "Allowing navigation to: ${sanitizeUrlForLog(url)}")
-                false // Allow WebView to handle the navigation
+                Log.d(TAG, "Allowing subframe navigation to: ${sanitizeUrlForLog(url)}")
+                false
             }
             is WebViewHostConfig.ValidationResult.Blocked -> {
-                Log.w(TAG, "Blocked navigation to: ${sanitizeUrlForLog(url)} - ${result.reason}: ${result.message}")
+                Log.w(TAG, "Blocked subframe navigation to: ${sanitizeUrlForLog(url)} - ${result.reason}: ${result.message}")
                 lastBlockedUrl = sanitizeUrlForStorage(url)
                 lastBlockedReason = result.reason
                 listener?.onNavigationBlocked(sanitizeUrlForStorage(url) ?: "unknown", result.reason, result.message)
-                true // Block the navigation
+                true
             }
         }
     }

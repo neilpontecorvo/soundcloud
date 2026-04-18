@@ -559,3 +559,17 @@ When resuming work:
 - Build: `./gradlew :app:assembleDebug` PASSED (9s incremental).
 - Pending (device): install APK, select a track, confirm `.m3u8` requests are no longer blocked.
 - Success condition: `JS -> Native: playback state changed: isPlaying=true` and/or `JS -> Native: track changed` events appear in the app-only trace.
+
+### Entry 021
+- Status: top-level navigation lock applied; device validation pending
+- Summary: Entry 020 / latest trace showed `player ready` firing and streaming host blocks resolved, but actual playback never began. After readiness, the WebView navigated to `https://m.soundcloud.com/pages/privacy` (a top-level main-frame navigation), which replaced the controlled injected document and destroyed the SC.Widget instance and JS bridge. The privacy page is served from `m.soundcloud.com` which is in the allowedHosts set, so it previously passed through `shouldOverrideUrlLoading` without being blocked.
+- Root cause: `shouldOverrideUrlLoading` was applying the host allowlist to ALL navigations. Allowlisted hosts (including `m.soundcloud.com`) were permitted as top-level navigations, but any real page replacing the data: injected document destroys the bridge. The allowlist was designed to block off-domain navigation, not to distinguish "stay on injected document" vs "navigate to a different page".
+- Fix (HardenedWebViewClient.shouldOverrideUrlLoading only):
+  - After the `isControlledInjectedMainFrame` check (which already allows the intentional `data:` load), added an unconditional main-frame block: if `request.isForMainFrame == true` at this point, block and log `Blocked top-level navigation away from controlled host: <url>`.
+  - Subframe (iframe/widget) navigations fall through to the existing allowlist logic unchanged.
+  - Log label explicitly says "top-level navigation away from controlled host" so it is unambiguous in the trace.
+  - `shouldInterceptRequest` unchanged — the allowlist still applies there for all subresources.
+- Not changed: allowlist, CSP, widget URL logic, layout, lifecycle.
+- Build: `./gradlew :app:assembleDebug` PASSED (8s incremental).
+- Pending (device): install APK, select a track.
+- Success condition: no `Page started: https://m.soundcloud.com/...` after player ready; `JS -> Native: playback state changed: isPlaying=true`; `JS -> Native: track changed`.
