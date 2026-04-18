@@ -548,3 +548,14 @@ When resuming work:
 - Build: `./gradlew :app:assembleDebug` PASSED (28s).
 - Pending (device): install APK, select any multi-item section from Library/Home.
 - Success condition: player visible in top 40%, multiple tracks visible below, D-pad scrolls list, selecting another track updates playback.
+
+### Entry 020
+- Status: streaming host allowlisted; device validation pending
+- Summary: Entry 019 / latest trace confirmed `player ready` still fires with CSP restored, but actual playback is blocked immediately after readiness. Evidence: repeated `Blocked subresource host='playback.media-streaming.soundcloud.cloud'` and blocked `.m3u8` HLS playlist requests, plus CORS/XHR errors from `https://w.soundcloud.com` origin (because the XHR to the streaming host was being zeroed out by `shouldInterceptRequest`).
+- Fix (two fields, one host):
+  - `WebViewHostConfig.DEFAULT.allowedHosts` — added `"playback.media-streaming.soundcloud.cloud"`.
+  - `WebPlayerHostController.buildControlledPlayerHtml` CSP `connect-src` — added `https://playback.media-streaming.soundcloud.cloud`.
+- Not changed: `dwt.soundcloud.com` stays blocked (user instruction: deferred unless evidence shows it matters). Widget URL construction still deferred. Lifecycle unchanged.
+- Build: `./gradlew :app:assembleDebug` PASSED (9s incremental).
+- Pending (device): install APK, select a track, confirm `.m3u8` requests are no longer blocked.
+- Success condition: `JS -> Native: playback state changed: isPlaying=true` and/or `JS -> Native: track changed` events appear in the app-only trace.

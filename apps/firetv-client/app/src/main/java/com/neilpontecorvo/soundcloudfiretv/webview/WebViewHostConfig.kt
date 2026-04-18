@@ -125,7 +125,8 @@ data class WebViewHostConfig(
                 "cf-hls-media.sndcdn.com",
                 "i1.sndcdn.com",
                 "widget.sndcdn.com",
-                "wave.sndcdn.com"
+                "wave.sndcdn.com",
+                "playback.media-streaming.soundcloud.cloud"
             ),
             allowedSchemes = setOf("https"),
             allowSubpaths = true
