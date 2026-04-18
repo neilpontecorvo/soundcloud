@@ -155,11 +155,11 @@ class WebPlayerHostController(
         }
 
         Log.i(TAG, "Resolved controlled widget URL: ${sanitizeUrlForLog(widgetUrl)}")
-        Log.i(TAG, "Loading controlled player entry via webView.loadData (no base URL; config entry retained only for allowlist: ${sanitizeUrlForLog(config.entryUrl)})")
+        Log.i(TAG, "Loading controlled player entry via webView.loadData URL-encoded (no base URL; config entry retained only for allowlist: ${sanitizeUrlForLog(config.entryUrl)})")
         lastLoadError = null
         webView.loadData(
-            buildControlledPlayerHtml(widgetUrl),
-            "text/html; charset=utf-8",
+            buildControlledPlayerHtml(widgetUrl).urlEncode(),
+            "text/html",
             "utf-8"
         )
         return true

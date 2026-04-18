@@ -490,3 +490,17 @@ When resuming work:
   - Then either `bootstrap stage=widget-api-onload` or `bootstrap stage=widget-api-onerror` appears on the external `w.soundcloud.com/player/api.js` script tag.
   - If all three/four beacons fire, CSP was the suppressor and the next pass is to restore a corrected CSP (widget API requires additional origins observed from the trace).
   - If none appear, CSP was not the cause and the next pass will switch the `loadData` payload path to an explicitly URL-encoded or base64-encoded form, because Amazon WebView may be mis-parsing the raw HTML payload.
+
+### Entry 016
+- Status: URL-encoded loadData applied; device validation pending
+- Summary: Entry 015 device trace ruled out CSP — removing the meta CSP tag still produced no bootstrap beacons. Document lifecycle, hardened client main-frame exemption, and WebView stability are all confirmed working. CSP confirmed not the blocker. Remaining hypothesis: raw HTML passed to `loadData(html, "text/html; charset=utf-8", "utf-8")` is being mis-parsed by Amazon WebView under the data: content type. URL-encoding the payload is the next isolation step.
+- Fix (single variable):
+  - `WebPlayerHostController.loadPlayer` — changed `loadData(buildControlledPlayerHtml(widgetUrl), "text/html; charset=utf-8", "utf-8")` to `loadData(buildControlledPlayerHtml(widgetUrl).urlEncode(), "text/html", "utf-8")`. Uses the existing private `String.urlEncode()` extension (backed by `URLEncoder.encode(this, "UTF-8")`). Mime-type simplified to `"text/html"` since charset is now handled by the encoding parameter.
+  - Log line updated to read `webView.loadData URL-encoded`.
+- Unchanged: CSP still absent (diagnostic state from entry 015 preserved — restore CSP only after execution is confirmed working). Widget URL construction still deferred. All other boundaries unchanged.
+- Build: `./gradlew :app:assembleDebug` PASSED (8s incremental).
+- Expected next trace:
+  - `bootstrap stage=pre-api-inline` appears (inline script now parses and executes).
+  - `bootstrap stage=post-api-inline` appears.
+  - `bootstrap stage=widget-api-onload` or `bootstrap stage=widget-api-onerror`.
+- Fallback if still no beacons: switch to base64-encoded `loadData` (`Base64.encodeToString(html.toByteArray(), Base64.NO_PADDING)`, mime `"text/html"`, encoding `"base64"`), or switch to `WebViewAssetLoader` with `appassets.androidplatform.net`.
