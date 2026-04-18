@@ -34,6 +34,13 @@ class HardenedWebViewClient(
     private var isLoading: Boolean = false
 
     /**
+     * True once the controlled injected `data:` document has committed.
+     * Used to detect and hard-abort any later JS-initiated main-frame
+     * navigation that bypasses `shouldOverrideUrlLoading`.
+     */
+    private var isControlledDocumentActive: Boolean = false
+
+    /**
      * Interface for receiving navigation events for diagnostics and state tracking.
      */
     interface NavigationListener {
@@ -46,6 +53,11 @@ class HardenedWebViewClient(
 
     override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
         val url = request?.url?.toString()
+        val isMainFrame = request?.isForMainFrame == true
+        Log.i(
+            TAG,
+            "shouldOverrideUrlLoading: mainFrame=$isMainFrame controlledActive=$isControlledDocumentActive url=${sanitizeUrlForLog(url)}"
+        )
         if (isControlledInjectedMainFrame(request, url)) {
             Log.i(
                 TAG,
@@ -59,8 +71,8 @@ class HardenedWebViewClient(
         // data: document; replacing it with any real page destroys the JS bridge and
         // the SC.Widget instance. Subframe / iframe navigation (e.g. the widget iframe)
         // does not go through shouldOverrideUrlLoading.
-        if (request?.isForMainFrame == true) {
-            Log.w(TAG, "Blocked top-level navigation away from controlled host: ${sanitizeUrlForLog(url)}")
+        if (isMainFrame) {
+            Log.w(TAG, "Blocked top-level navigation away from controlled host: ${sanitizeUrlForLog(url)} (controlledActive=$isControlledDocumentActive)")
             lastBlockedUrl = sanitizeUrlForStorage(url)
             lastBlockedReason = WebViewHostConfig.BlockReason.DISALLOWED_HOST
             listener?.onNavigationBlocked(
@@ -68,6 +80,7 @@ class HardenedWebViewClient(
                 WebViewHostConfig.BlockReason.DISALLOWED_HOST,
                 "Top-level navigation away from controlled host blocked"
             )
+            view?.stopLoading()
             return true
         }
 
@@ -123,15 +136,48 @@ class HardenedWebViewClient(
         super.onPageStarted(view, url, favicon)
         isLoading = true
         currentUrl = sanitizeUrlForStorage(url)
-        Log.i(TAG, "Page started: ${sanitizeUrlForLog(url)}")
+        val injected = isInjectedMainFrameUrl(url)
+        Log.i(TAG, "Page started: ${sanitizeUrlForLog(url)} injected=$injected controlledActive=$isControlledDocumentActive")
+        if (isControlledDocumentActive && !injected) {
+            Log.w(
+                TAG,
+                "Main-frame navigation away from controlled document detected in onPageStarted — stopping load: ${sanitizeUrlForLog(url)}"
+            )
+            lastBlockedUrl = sanitizeUrlForStorage(url)
+            lastBlockedReason = WebViewHostConfig.BlockReason.DISALLOWED_HOST
+            listener?.onNavigationBlocked(
+                sanitizeUrlForStorage(url) ?: "unknown",
+                WebViewHostConfig.BlockReason.DISALLOWED_HOST,
+                "Top-level navigation away from controlled host blocked in onPageStarted"
+            )
+            view?.stopLoading()
+            return
+        }
         listener?.onPageStarted(sanitizeUrlForStorage(url) ?: "unknown")
+    }
+
+    override fun onPageCommitVisible(view: WebView?, url: String?) {
+        super.onPageCommitVisible(view, url)
+        val injected = isInjectedMainFrameUrl(url)
+        Log.i(TAG, "Page commit visible: ${sanitizeUrlForLog(url)} injected=$injected controlledActive=$isControlledDocumentActive")
+        if (isControlledDocumentActive && !injected) {
+            Log.w(
+                TAG,
+                "Non-injected main-frame commit detected — stopping load: ${sanitizeUrlForLog(url)}"
+            )
+            view?.stopLoading()
+        }
     }
 
     override fun onPageFinished(view: WebView?, url: String?) {
         super.onPageFinished(view, url)
         isLoading = false
         currentUrl = sanitizeUrlForStorage(url)
-        Log.i(TAG, "Page finished: ${sanitizeUrlForLog(url)}")
+        val injected = isInjectedMainFrameUrl(url)
+        if (injected) {
+            isControlledDocumentActive = true
+        }
+        Log.i(TAG, "Page finished: ${sanitizeUrlForLog(url)} injected=$injected controlledActive=$isControlledDocumentActive")
         listener?.onPageFinished(sanitizeUrlForStorage(url) ?: "unknown")
     }
 
@@ -145,8 +191,13 @@ class HardenedWebViewClient(
         val errorCode = error?.errorCode ?: -1
         val description = error?.description?.toString() ?: "Unknown error"
 
+        val isMainFrame = request?.isForMainFrame == true
+        Log.i(
+            TAG,
+            "onReceivedError: mainFrame=$isMainFrame controlledActive=$isControlledDocumentActive code=$errorCode url=${sanitizeUrlForLog(url)}"
+        )
         // Only track main frame errors
-        if (request?.isForMainFrame == true) {
+        if (isMainFrame) {
             if (isSyntheticControlledLoadError(url)) {
                 Log.w(
                     TAG,
@@ -190,6 +241,7 @@ class HardenedWebViewClient(
         lastBlockedReason = null
         lastError = null
         isLoading = false
+        isControlledDocumentActive = false
     }
 
     /**
@@ -246,6 +298,10 @@ class HardenedWebViewClient(
         url: String?
     ): Boolean {
         if (request?.isForMainFrame != true) return false
+        return isInjectedMainFrameUrl(url)
+    }
+
+    private fun isInjectedMainFrameUrl(url: String?): Boolean {
         val normalized = url?.trim()?.lowercase() ?: return false
         return normalized.startsWith("data:") || normalized == "about:blank"
     }

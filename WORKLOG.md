@@ -573,3 +573,22 @@ When resuming work:
 - Build: `./gradlew :app:assembleDebug` PASSED (8s incremental).
 - Pending (device): install APK, select a track.
 - Success condition: no `Page started: https://m.soundcloud.com/...` after player ready; `JS -> Native: playback state changed: isPlaying=true`; `JS -> Native: track changed`.
+
+### Entry 022
+- Status: belt-and-suspenders main-frame lockdown applied; device validation pending
+- Summary: Entry 021 installed a `shouldOverrideUrlLoading` main-frame block, but a device trace still showed `Page started: https://m.soundcloud.com/pages/privacy` committing and destroying the controlled document. In this WebView version the privacy-page navigation bypasses `shouldOverrideUrlLoading` (likely a JS/renderer-initiated main-frame redirect), so the override hook alone cannot catch it.
+- Fix (HardenedWebViewClient.kt only):
+  - New field `isControlledDocumentActive: Boolean` — flipped true in `onPageFinished` when the finished URL is the injected `data:` document (or `about:blank`). Reset in `clearDiagnosticState`.
+  - New helper `isInjectedMainFrameUrl(url)` shared by all navigation hooks.
+  - `onPageStarted` — when `isControlledDocumentActive` and url is not injected, log a `Main-frame navigation away from controlled document detected` line, notify `onNavigationBlocked`, and call `view?.stopLoading()` before surfacing the event. This cancels in-flight loads that slipped past `shouldOverrideUrlLoading`.
+  - Override `onPageCommitVisible(view, url)` — same non-injected/controlled-active check; logs and calls `stopLoading()` if the non-injected document is about to commit visibly.
+  - `shouldOverrideUrlLoading` — now also calls `view?.stopLoading()` on the main-frame block path, and logs `mainFrame=/controlledActive=` state on every entry. Unconditional main-frame block from Entry 021 unchanged.
+  - `onReceivedError` — logs `mainFrame=/controlledActive=/code=` for every error to disambiguate stopLoading-induced errors from real subresource failures.
+  - Subframe / iframe / subresource paths unchanged — allowlist still applied via `shouldInterceptRequest` and the subframe branch of `shouldOverrideUrlLoading`.
+- Not changed: allowlist, CSP, widget URL construction, layout, lifecycle, bridge surface.
+- Build: `./gradlew :app:assembleDebug` PASSED (1m 14s).
+- Pending (device): install APK, select a track after VPN off.
+- Success condition:
+  - After `player ready`, no `Page started: https://m.soundcloud.com/pages/privacy` (or if it starts, a `Main-frame navigation away from controlled document detected` log immediately follows and the document does not commit).
+  - `JS -> Native: playback state changed: isPlaying=true` and/or `JS -> Native: track changed` appear in the trace.
+  - Every navigation hook log line now carries `controlledActive=` state for unambiguous diagnosis of any future escape path.
