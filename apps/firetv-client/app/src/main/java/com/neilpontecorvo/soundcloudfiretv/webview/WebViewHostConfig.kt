@@ -124,7 +124,8 @@ data class WebViewHostConfig(
                 "cf-media.sndcdn.com",
                 "cf-hls-media.sndcdn.com",
                 "i1.sndcdn.com",
-                "widget.sndcdn.com"
+                "widget.sndcdn.com",
+                "wave.sndcdn.com"
             ),
             allowedSchemes = setOf("https"),
             allowSubpaths = true

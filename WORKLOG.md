@@ -521,3 +521,14 @@ When resuming work:
   - `bootstrap stage=post-api-inline` appears.
   - Either `bootstrap stage=widget-api-onload` or `bootstrap stage=widget-api-onerror`.
 - After that, the next likely blocker is either widget API load (if `widget-api-onerror`) or widget URL correctness (if `widget-api-onload` but no READY).
+
+### Entry 018
+- Status: wave.sndcdn.com allowlisted; CSP restored with proven origins; device validation pending
+- Summary: Entry 017 device trace confirmed `JS -> Native: player ready` — the first successful end-to-end Player readiness event on physical Fire TV. The new facts from that trace: `wave.sndcdn.com` subresource was being blocked, and the CSP removal diagnostic state must be resolved before shipping.
+- Fix (two-variable pass, as explicitly scoped by user instruction):
+  1. `WebViewHostConfig.DEFAULT` — added `"wave.sndcdn.com"` to `allowedHosts`.
+  2. `WebPlayerHostController.buildControlledPlayerHtml` — restored `<meta http-equiv="Content-Security-Policy" ...>` with the proven-necessary origin set: original origins retained (`api-widget.soundcloud.com`, `api-v2.soundcloud.com`, `w.soundcloud.com`, `cf-media.sndcdn.com`, `cf-hls-media.sndcdn.com`) plus `wave.sndcdn.com` added to `connect-src`. `img-src https:` already covered waveform images; `connect-src` now explicitly includes `wave.sndcdn.com`.
+- Unchanged: base64 `loadData` retained; widget URL construction still deferred; all other instrumentation still present; HardenedWebViewClient main-frame data: exemption active; bridge surface unchanged.
+- Build: `./gradlew :app:assembleDebug` PASSED (7s incremental).
+- Pending (device): install APK, VPN off, standard app-only filter, select `Local Debug Track`. Confirm `JS -> Native: player ready` still fires with CSP restored.
+- Completion status update: Player runtime on physical Fire TV is now unblocked at the readiness path. The remaining work is widget URL correctness (content-specific playback), secondary polish, and cleanup.
