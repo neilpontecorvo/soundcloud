@@ -46,6 +46,14 @@ class HardenedWebViewClient(
 
     override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
         val url = request?.url?.toString()
+        if (isControlledInjectedMainFrame(request, url)) {
+            Log.i(
+                TAG,
+                "Allowing controlled injected main-frame navigation: ${sanitizeUrlForLog(url)}"
+            )
+            return false
+        }
+
         val result = config.validateUrl(url)
 
         return when (result) {
@@ -65,6 +73,19 @@ class HardenedWebViewClient(
 
     override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
         val url = request?.url?.toString()
+        if (isControlledInjectedMainFrame(request, url)) {
+            // The top-level document is the HTML we just injected via loadData(...).
+            // Do not classify it as a blocked subresource — that interferes with the
+            // main-frame load lifecycle on Amazon WebView and prevents onPageFinished
+            // from firing. Subresource data: URLs (e.g. inline fonts within the iframe)
+            // still fall through to the normal validation path below.
+            Log.i(
+                TAG,
+                "Allowing controlled injected main-frame document: ${sanitizeUrlForLog(url)}"
+            )
+            return super.shouldInterceptRequest(view, request)
+        }
+
         val result = config.validateUrl(url)
 
         if (result is WebViewHostConfig.ValidationResult.Blocked) {
@@ -190,6 +211,25 @@ class HardenedWebViewClient(
 
     private fun isControlledEntryUrl(url: String?): Boolean {
         return sanitizeUrlForStorage(url) == sanitizeUrlForStorage(config.entryUrl)
+    }
+
+    /**
+     * True when the request is the top-level document created by our intentional
+     * `webView.loadData(...)` call. Amazon WebView surfaces this as `data:` (often
+     * literally `data://null`) in both `shouldOverrideUrlLoading` and
+     * `shouldInterceptRequest`. Classifying it as a disallowed host/scheme stalls
+     * the load and blocks `onPageFinished`.
+     *
+     * Subresources with `data:` URLs (e.g. inline fonts inside the widget iframe)
+     * are still subject to normal validation because they are not main-frame.
+     */
+    private fun isControlledInjectedMainFrame(
+        request: WebResourceRequest?,
+        url: String?
+    ): Boolean {
+        if (request?.isForMainFrame != true) return false
+        val normalized = url?.trim()?.lowercase() ?: return false
+        return normalized.startsWith("data:") || normalized == "about:blank"
     }
 
     private fun isSyntheticControlledLoadError(url: String?): Boolean {

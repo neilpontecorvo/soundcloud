@@ -456,3 +456,21 @@ When resuming work:
   - Exactly one each of: `PlayerBridge attached`, `Starting Player load`, `Post-load webView.url snapshot`, `Page finished`, `DocSnapshot[onPageFinished]`.
   - No repeated `PlayerBridge detached from WebView` mid-load.
 - If that is stable and bootstrap beacons now appear, the next visible blocker is expected to be the widget URL construction.
+
+### Entry 014
+- Status: main-frame `data:` exemption applied in hardened client; device validation pending
+- Summary: Entry 013 device trace showed WebView reuse is now stable (no mid-load detach churn), but `onPageFinished` still does not arrive. Evidence: `Post-load webView.url snapshot: data://null` is immediately followed by `HardenedWebViewClient: Blocked subresource host='null' reason=DISALLOWED_SCHEME url=data://null`. The hardened client is classifying the intentional injected top-level document as a blocked subresource, which stalls the main-frame lifecycle on Amazon WebView.
+- Fix (single targeted pass):
+  - `HardenedWebViewClient.isControlledInjectedMainFrame(request, url)` — new helper. Returns true only when `request.isForMainFrame == true` AND the URL is `data:...` or `about:blank`.
+  - `HardenedWebViewClient.shouldInterceptRequest` — when the predicate is true, delegate to `super.shouldInterceptRequest(view, request)` instead of returning a synthetic empty 200 block response. Logged as `Allowing controlled injected main-frame document: ...`.
+  - `HardenedWebViewClient.shouldOverrideUrlLoading` — when the predicate is true, return `false` (allow) without passing through allowlist validation. Logged as `Allowing controlled injected main-frame navigation: ...`.
+  - Subresource requests with `data:` URLs (e.g. inline fonts inside the widget iframe) are still validated and blocked normally — the exemption is main-frame only.
+- Not changed (still deferred): widget URL construction; allowlist hosts; UI; backend; bridge surface. No change to `validateUrl` logic, so all hardening for real navigation targets is unaffected.
+- Build: `./gradlew :app:assembleDebug` PASSED (5s incremental).
+- Pending (device): install APK, VPN off, standard app-only filter, select `Local Debug Track`.
+- Expected trace:
+  - `HardenedWebViewClient: Allowing controlled injected main-frame document: data://null` instead of a blocked-subresource warn.
+  - `HardenedWebViewClient: Page finished: ...` now fires.
+  - `MainActivity: DocSnapshot[onPageFinished] outerHTML=` contains `<!doctype html>` of our bootstrap.
+  - `PlayerBridge: JS -> Native: bootstrap stage=pre-api-inline` appears.
+- Next probable blocker (next pass, not this pass): widget URL construction.
