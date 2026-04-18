@@ -79,6 +79,7 @@ class MainActivity : AppCompatActivity(),
 
     private var currentScreen: AppScreen = AppScreen.HOME
     private var playerWebView: WebView? = null
+    private var lastLoadedPlayableId: String? = null
     private var playerStateView: TextView? = null
     private var playerTrackView: TextView? = null
     private var playerArtistView: TextView? = null
@@ -622,27 +623,43 @@ class MainActivity : AppCompatActivity(),
             )
         }
 
-        releasePlayerHost(clearSelection = false)
-        val webView = WebView(this)
-        webView.setBackgroundColor(Color.BLACK)
-        webHost.configure(webView)
-        webView.webChromeClient = object : WebChromeClient() {
-            override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
-                val level = consoleMessage?.messageLevel()?.name ?: "LOG"
-                val msg = consoleMessage?.message() ?: ""
-                val src = consoleMessage?.sourceId() ?: ""
-                val line = consoleMessage?.lineNumber() ?: -1
-                Log.w(TAG, "WebConsole[$level] $msg (src=$src:$line)")
-                return true
+        val existingWebView = playerWebView
+        val reuseExisting = existingWebView != null && lastLoadedPlayableId == selected.id
+        val webView: WebView
+        if (reuseExisting && existingWebView != null) {
+            Log.i(TAG, "Player composed: WebView reused for id=${selected.id}")
+            (existingWebView.parent as? ViewGroup)?.removeView(existingWebView)
+            webView = existingWebView
+        } else {
+            if (existingWebView != null) {
+                Log.i(TAG, "Player composed: selection changed ($lastLoadedPlayableId -> ${selected.id}); releasing prior WebView")
+            } else {
+                Log.i(TAG, "Player composed: no prior WebView; creating new for id=${selected.id}")
             }
+            releasePlayerHost(clearSelection = false)
+            val fresh = WebView(this)
+            fresh.setBackgroundColor(Color.BLACK)
+            webHost.configure(fresh)
+            fresh.webChromeClient = object : WebChromeClient() {
+                override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+                    val level = consoleMessage?.messageLevel()?.name ?: "LOG"
+                    val msg = consoleMessage?.message() ?: ""
+                    val src = consoleMessage?.sourceId() ?: ""
+                    val line = consoleMessage?.lineNumber() ?: -1
+                    Log.w(TAG, "WebConsole[$level] $msg (src=$src:$line)")
+                    return true
+                }
+            }
+            playerBridge.attachToWebView(fresh)
+            Log.i(TAG, "WebView created for id=${selected.id}")
+            playerWebView = fresh
+            hasLoggedFirstBridgeEvent = false
+            webView = fresh
         }
-        playerBridge.attachToWebView(webView)
-        playerWebView = webView
-        hasLoggedFirstBridgeEvent = false
 
         Log.i(
             TAG,
-            "Selected playable content: id=${selected.id}, title=${selected.title}, webUrl=${sanitizeUrlForLog(contentUrl)}"
+            "Selected playable content: id=${selected.id}, title=${selected.title}, webUrl=${sanitizeUrlForLog(contentUrl)}, reused=$reuseExisting"
         )
 
         val playerRoot = LinearLayout(this).apply {
@@ -734,12 +751,18 @@ class MainActivity : AppCompatActivity(),
             artist = initialArtist
         ))
 
+        if (reuseExisting) {
+            Log.i(TAG, "loadPlayer skipped: already loaded ${selected.id}")
+            return playerRoot
+        }
+
         Log.i(TAG, "Starting Player load for ${selected.id}")
         logWebViewEnvironment()
         Log.i(TAG, "Player load method: webView.loadData(mime=text/html; charset=utf-8, no base URL); allowlist entry=${webHost.getEntryUrl()}")
         val didStartLoad = webHost.loadPlayer(webView, contentUrl)
         Log.i(TAG, "Post-load webView.url snapshot: ${sanitizeUrlForLog(webView.url)}")
         if (didStartLoad) {
+            lastLoadedPlayableId = selected.id
             startPlayerReadyTimeout(selected, contentUrl)
             webHost.getDiagnosticState().lastError?.let { error ->
                 updatePlayerUi(playerUiState.copy(isLoading = false, errorMessage = error))
@@ -839,7 +862,9 @@ class MainActivity : AppCompatActivity(),
                 Log.w(TAG, "Failed to release player WebView cleanly: ${error.message}")
             }
         }
+        Log.i(TAG, "Player disposed (lastLoadedId=$lastLoadedPlayableId)")
         playerWebView = null
+        lastLoadedPlayableId = null
         playerStateView = null
         playerTrackView = null
         playerArtistView = null

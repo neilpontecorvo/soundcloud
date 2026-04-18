@@ -432,3 +432,27 @@ When resuming work:
   - `DocSnapshot[onPageFinished] outerHTML=` contains the injected `<!doctype html>...` bootstrap (no more `chrome-error://`).
   - `PlayerBridge: JS -> Native: bootstrap stage=pre-api-inline` appears.
   - Next probable visible failure becomes the widget URL shape (`https://w.soundcloud.com/player/` with no `url=` param when selection is null, or incorrectly encoded when non-null). That will be the next targeted pass.
+
+### Entry 013
+- Status: stable WebView reuse applied; device validation pending
+- Summary: Device trace from Entry 012 presumed to show repeated attach/detach cycles mid-load (e.g. `PlayerBridge attached` → `Starting Player load` → `PlayerBridge detached` → repeat). Any screen re-entry / state refresh that re-invokes `buildPlayerView()` for the same selected content was fully releasing and rebuilding the WebView, so the load was never given uninterrupted time to complete its pre-widget bootstrap.
+- Fix (single pass, per instruction):
+  - New field `lastLoadedPlayableId: String?` on `MainActivity`. Set only after `loadPlayer` returns `didStartLoad=true`. Cleared in `releasePlayerHost`.
+  - `buildPlayerView()` — reuse branch when `playerWebView != null && lastLoadedPlayableId == selected.id`: detach the existing WebView from any prior parent (`(view.parent as? ViewGroup)?.removeView(view)`), skip fresh creation, skip `webHost.configure`, skip `playerBridge.attachToWebView`, skip `loadPlayer`, re-attach into the newly composed Player layout.
+  - Non-reuse branch (no prior WebView, or selected ID changed): explicit `releasePlayerHost(clearSelection = false)` first, then construct/configure/attach as before.
+  - Idempotent guard on `loadPlayer`: when reuseExisting, the function logs `loadPlayer skipped: already loaded <id>` and returns the composed layout without invoking `webHost.loadPlayer`.
+  - New informational logs covering the lifecycle:
+    - `Player composed: WebView reused for id=<id>`
+    - `Player composed: no prior WebView; creating new for id=<id>`
+    - `Player composed: selection changed (<old> -> <new>); releasing prior WebView`
+    - `WebView created for id=<id>`
+    - `loadPlayer skipped: already loaded <id>`
+    - `Player disposed (lastLoadedId=<id>)`
+  - `Selected playable content` line now includes `reused=true|false`.
+- Not changed this cycle (still deferred): widget URL construction; hardened-host allowlist; UI; backend; bridge surface (no new JS-interface methods).
+- Build: `./gradlew :app:assembleDebug` PASSED (15s incremental).
+- Pending (device): install APK, VPN off, standard app-only logcat filter, select `Local Debug Track`.
+- Expected trace (success condition from the user's spec):
+  - Exactly one each of: `PlayerBridge attached`, `Starting Player load`, `Post-load webView.url snapshot`, `Page finished`, `DocSnapshot[onPageFinished]`.
+  - No repeated `PlayerBridge detached from WebView` mid-load.
+- If that is stable and bootstrap beacons now appear, the next visible blocker is expected to be the widget URL construction.
