@@ -244,7 +244,7 @@ class WebPlayerHostController(
             <head>
               <meta charset="utf-8">
               <meta name="viewport" content="width=device-width, initial-scale=1">
-              <meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src https://w.soundcloud.com; script-src 'unsafe-inline' https://w.soundcloud.com; style-src 'unsafe-inline'; img-src https: data:; connect-src https://api-widget.soundcloud.com https://api-v2.soundcloud.com https://w.soundcloud.com https://cf-media.sndcdn.com https://cf-hls-media.sndcdn.com;">
+              <!-- DIAGNOSTIC PASS (entry 015): CSP meta tag temporarily removed to determine whether CSP was suppressing inline/API script execution on Amazon WebView. Restore before shipping. Network-layer subresource blocking via HardenedWebViewClient allowlist is unchanged. -->
               <style>
                 html, body {
                   margin: 0;

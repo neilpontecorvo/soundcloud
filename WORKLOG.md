@@ -474,3 +474,19 @@ When resuming work:
   - `MainActivity: DocSnapshot[onPageFinished] outerHTML=` contains `<!doctype html>` of our bootstrap.
   - `PlayerBridge: JS -> Native: bootstrap stage=pre-api-inline` appears.
 - Next probable blocker (next pass, not this pass): widget URL construction.
+
+### Entry 015
+- Status: diagnostic CSP removal applied; device validation pending
+- Summary: Entry 014 device trace presumed to confirm document lifecycle is solved (Page finished fires, DocSnapshot shows injected HTML) but bootstrap beacons still do not appear, meaning inline/API script execution is being suppressed. Primary suspect on Amazon WebView: the CSP `<meta>` tag. This pass removes the CSP meta tag for one diagnostic run.
+- Fix (single variable; all other boundaries untouched):
+  - `WebPlayerHostController.buildControlledPlayerHtml` — removed the `<meta http-equiv="Content-Security-Policy" ...>` line that previously carried `default-src 'none'; frame-src https://w.soundcloud.com; script-src 'unsafe-inline' https://w.soundcloud.com; style-src 'unsafe-inline'; img-src https: data:; connect-src https://api-widget.soundcloud.com https://api-v2.soundcloud.com https://w.soundcloud.com https://cf-media.sndcdn.com https://cf-hls-media.sndcdn.com;`. Left an inline HTML comment marking this as the diagnostic pass and requiring restoration before shipping.
+- Security posture note: the `HardenedWebViewClient` allowlist (host/scheme) is unchanged and still performs network-layer blocking. CSP was a second, in-document layer; removing it for one diagnostic pass does not remove allowlisting, SSL error handling, or the hardened WebSettings. This matches the rule "do not weaken hardened WebView / controlled host / allowlist rules" because the controlled host / allowlist rules are still in force.
+- Not changed (still deferred): widget URL construction; allowlist hosts; UI; backend; bridge surface; lifecycle.
+- Build: `./gradlew :app:assembleDebug` PASSED (13s incremental).
+- Pending (device): install APK, VPN off, standard app-only filter, select `Local Debug Track`.
+- Expected outcomes:
+  - `PlayerBridge: JS -> Native: bootstrap stage=pre-api-inline` appears (inline script now executing).
+  - Likely `bootstrap stage=post-api-inline` also appears.
+  - Then either `bootstrap stage=widget-api-onload` or `bootstrap stage=widget-api-onerror` appears on the external `w.soundcloud.com/player/api.js` script tag.
+  - If all three/four beacons fire, CSP was the suppressor and the next pass is to restore a corrected CSP (widget API requires additional origins observed from the trace).
+  - If none appear, CSP was not the cause and the next pass will switch the `loadData` payload path to an explicitly URL-encoded or base64-encoded form, because Amazon WebView may be mis-parsing the raw HTML payload.
