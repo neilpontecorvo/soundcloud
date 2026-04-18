@@ -736,7 +736,7 @@ class MainActivity : AppCompatActivity(),
 
         Log.i(TAG, "Starting Player load for ${selected.id}")
         logWebViewEnvironment()
-        Log.i(TAG, "Player load method: loadDataWithBaseURL(baseUrl=${webHost.getEntryUrl()})")
+        Log.i(TAG, "Player load method: webView.loadData(mime=text/html; charset=utf-8, no base URL); allowlist entry=${webHost.getEntryUrl()}")
         val didStartLoad = webHost.loadPlayer(webView, contentUrl)
         Log.i(TAG, "Post-load webView.url snapshot: ${sanitizeUrlForLog(webView.url)}")
         if (didStartLoad) {

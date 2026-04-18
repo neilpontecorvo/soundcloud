@@ -155,14 +155,12 @@ class WebPlayerHostController(
         }
 
         Log.i(TAG, "Resolved controlled widget URL: ${sanitizeUrlForLog(widgetUrl)}")
-        Log.i(TAG, "Loading controlled player entry via about:blank baseUrl (config entry still used for allowlist: ${sanitizeUrlForLog(config.entryUrl)})")
+        Log.i(TAG, "Loading controlled player entry via webView.loadData (no base URL; config entry retained only for allowlist: ${sanitizeUrlForLog(config.entryUrl)})")
         lastLoadError = null
-        webView.loadDataWithBaseURL(
-            INJECTED_HOST_BASE_URL,
+        webView.loadData(
             buildControlledPlayerHtml(widgetUrl),
-            "text/html",
-            "UTF-8",
-            INJECTED_HOST_BASE_URL
+            "text/html; charset=utf-8",
+            "utf-8"
         )
         return true
     }
@@ -423,10 +421,10 @@ class WebPlayerHostController(
 
     companion object {
         private const val TAG = "WebPlayerHostController"
-        // Non-navigating baseUrl for loadDataWithBaseURL. Amazon WebView treats a real
-        // https baseUrl as a live top-level navigation, which collapses into the Chromium
-        // error page and discards the injected HTML. about:blank keeps the injected
-        // document as the actual document while still permitting absolute https subresources.
-        private const val INJECTED_HOST_BASE_URL = "about:blank"
+        // Amazon WebView collapsed loadDataWithBaseURL into a chrome-error page with
+        // both an https base and about:blank; injected HTML was discarded before any
+        // inline script ran. Using loadData with no base URL keeps the injected HTML
+        // as the live top-level document. All external script/widget URLs remain
+        // absolute so no base-relative resolution is required.
     }
 }

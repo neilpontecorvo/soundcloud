@@ -416,3 +416,19 @@ When resuming work:
   - `DocSnapshot[onPageFinished] outerHTML=` now contains the injected bootstrap HTML.
   - `PlayerBridge: JS -> Native: bootstrap stage=pre-api-inline` appears.
   - Either `widget-api-onload` follows (then we are at the widget-URL-correctness stage) or we learn exactly which subresource is blocked.
+
+### Entry 012
+- Status: loadData switch applied; device validation pending
+- Summary: Entry 011 `about:blank` base also collapsed into `chrome-error://chromewebdata/` (`Post-load webView.url snapshot: about://null`, `title='Webpage not available'`, no bootstrap beacons). Two different `loadDataWithBaseURL` bases (fake https + `about:blank`) both fail on Amazon WebView the same way; the remaining isolation is to drop the base-URL pathway entirely.
+- Fix (single variable, per instruction):
+  - `WebPlayerHostController.loadPlayer` — replaced `webView.loadDataWithBaseURL(base, html, "text/html", "UTF-8", historyUrl)` with `webView.loadData(html, "text/html; charset=utf-8", "utf-8")`. No base URL is passed. All external script/widget URLs in the injected HTML are already absolute.
+  - Removed the now-obsolete `INJECTED_HOST_BASE_URL` constant; added a short companion-object note recording why both base-URL forms were abandoned.
+  - `MainActivity` — updated the "Player load method:" log line to reflect the real current pathway (was still claiming `loadDataWithBaseURL(baseUrl=https://soundcloud.com/tv-player-host)`).
+- `config.entryUrl` is unchanged; it still drives allowlist policy and diagnostic UI but no longer touches the WebView load call.
+- Not changed (still deferred): widget URL construction; hardened-host allowlist; UI; backend; bridge surface.
+- Build: `./gradlew :app:assembleDebug` PASSED (11s incremental).
+- Pending (device): install APK, VPN off, `adb logcat -c`, standard app-only filter, select `Local Debug Track`.
+- Expected outcomes:
+  - `DocSnapshot[onPageFinished] outerHTML=` contains the injected `<!doctype html>...` bootstrap (no more `chrome-error://`).
+  - `PlayerBridge: JS -> Native: bootstrap stage=pre-api-inline` appears.
+  - Next probable visible failure becomes the widget URL shape (`https://w.soundcloud.com/player/` with no `url=` param when selection is null, or incorrectly encoded when non-null). That will be the next targeted pass.
