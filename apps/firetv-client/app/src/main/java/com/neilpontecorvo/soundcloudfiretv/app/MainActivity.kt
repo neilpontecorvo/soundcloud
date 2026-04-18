@@ -13,6 +13,8 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
+import android.webkit.ConsoleMessage
+import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.widget.Button
 import android.widget.EditText
@@ -599,6 +601,16 @@ class MainActivity : AppCompatActivity(),
         val webView = WebView(this)
         webView.setBackgroundColor(Color.BLACK)
         webHost.configure(webView)
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+                val level = consoleMessage?.messageLevel()?.name ?: "LOG"
+                val msg = consoleMessage?.message() ?: ""
+                val src = consoleMessage?.sourceId() ?: ""
+                val line = consoleMessage?.lineNumber() ?: -1
+                Log.w(TAG, "WebConsole[$level] $msg (src=$src:$line)")
+                return true
+            }
+        }
         playerBridge.attachToWebView(webView)
         playerWebView = webView
         hasLoggedFirstBridgeEvent = false

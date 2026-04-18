@@ -68,7 +68,11 @@ class HardenedWebViewClient(
         val result = config.validateUrl(url)
 
         if (result is WebViewHostConfig.ValidationResult.Blocked) {
-            Log.d(TAG, "Blocking subresource from disallowed origin: ${sanitizeUrlForLog(url)}")
+            val host = try { android.net.Uri.parse(url).host } catch (_: Exception) { null }
+            Log.w(
+                TAG,
+                "Blocked subresource host='$host' reason=${result.reason} url=${sanitizeUrlForLog(url)}"
+            )
             // Return empty response to block disallowed subresources
             return WebResourceResponse("text/plain", "UTF-8", null)
         }

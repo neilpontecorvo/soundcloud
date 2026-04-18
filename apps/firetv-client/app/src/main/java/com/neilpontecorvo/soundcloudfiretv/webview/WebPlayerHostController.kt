@@ -289,6 +289,7 @@ class WebPlayerHostController(
               <script src="https://w.soundcloud.com/player/api.js"></script>
               <script>
                 (function() {
+                  try { console.log('fire-tv: inline player script started'); } catch (e) {}
                   var iframe = document.getElementById('providerPlayer');
                   var widget = null;
                   var isPlaying = false;
@@ -319,6 +320,7 @@ class WebPlayerHostController(
 
                   function bindWidget() {
                     reportLoading(true);
+                    try { console.log('fire-tv: bindWidget entered; SC=' + (!!window.SC) + ' SC.Widget=' + (!!(window.SC && window.SC.Widget))); } catch (e) {}
                     if (!window.SC || !window.SC.Widget) {
                       nativeCall('reportPlaybackError', 'widget_api_missing', 'Player API did not load.');
                       reportLoading(false);
