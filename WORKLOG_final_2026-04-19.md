@@ -417,7 +417,7 @@ When resuming work:
 - Result: app appears on the Fire TV home screen again and the custom banner is visible on the tile.
 
 ### Entry 013
-- Status: completed (build + typecheck verified; device validation pending)
+- Status: completed (build, typecheck, and on-device validation all passed)
 - Summary: Session persistence + explicit LOGIN_REQUIRED auth phase added across Android client and API service.
 - Changes:
   - AppScreen.kt: added LOGIN_REQUIRED screen to the navigation enum.
@@ -430,5 +430,27 @@ When resuming work:
 - Commands run: `./gradlew :app:assembleDebug` (BUILD SUCCESSFUL in 3m 25s); `npm run check` in services/api (tsc --noEmit clean).
 - Passed: Android debug APK builds green; API service typechecks clean.
 - Failed: none.
-- Remaining: on-device validation of persisted session restore across app restarts, and of the LOGIN_REQUIRED fallback path when the stored sessionId is rejected by the backend.
+- Remaining: none for this entry.
 - Result: client now has an explicit unauthenticated phase and API sessions survive backend restarts; ready for device validation.
+
+### Entry 014
+- Status: completed (on-device validation)
+- Summary: Validated Entry 013 session-persistence + LOGIN_REQUIRED flow on physical Fire TV (AFTKM @ 192.168.1.168) against rebuilt API service.
+- Commands run:
+  - `./gradlew :app:assembleDebug` (reused APK from Entry 013, BUILD SUCCESSFUL).
+  - Rebuilt API: `npm --workspace @soundcloud-private/api run build`.
+  - Wiped backend state: `rm -f services/api/data/sessions.json services/api/.local/provider-token-store.json`, restarted `node dist/index.js` with `ENABLE_DEBUG_AUTH=true`.
+  - `adb uninstall com.neilpontecorvo.soundcloudfiretv && adb install -r app-debug.apk && adb shell am start ... MainActivity`.
+  - `adb shell input keyevent 23` (DPAD_CENTER to click "Use Debug Session").
+  - `adb shell input keyevent KEYCODE_MEDIA_PLAY_PAUSE` (x2 for pause/play regression).
+- What passed:
+  1. Fresh-install cold start: app lands on LOGIN_REQUIRED with "Sign In Required / Private Cloud TV / Ready to sign in." and focuses "Use Debug Session" (debug route is now a fallback button, not the default happy path).
+  2. Debug auth → HOME: clicking Use Debug Session authenticates and navigates to HOME ("Cloud Player" title, Latest rail populated). Backend `sessions.json` picks up the authenticated session; device `shared_prefs/session_persistence.xml` holds `last_session_id`.
+  3. Silent restore: `force-stop` + relaunch with valid persisted sessionId goes straight to HOME without flashing LOGIN_REQUIRED.
+  4. Invalid-session fallback: wiping backend `sessions.json` + `provider-token-store.json` and restarting the API, then relaunching the app, correctly routes to LOGIN_REQUIRED, clears the stale sessionId from `shared_prefs` (confirmed empty `<map/>`), and completes a fresh bootstrap ("Ready to sign in.").
+  5. Playback intact: selecting `Local Debug Track` reaches Player, widget fires `ready` → `play`, sound resolves to `Flickermood` by `Forss`, and `isPaused=false` after debug play invocation.
+  6. Play/Pause key: global MEDIA_PLAY_PAUSE keycode still consumed at the Activity level (`Transport dispatch: command=toggle`) and widget responds with `pause` then `play` events across two presses.
+- What failed: nothing observed during validation.
+- Regressions: none to playback, launcher, banner, or Play/Pause.
+- Remaining blocker: none for this validation pass.
+- Next step: optional cleanup — purge old pre-Entry-013 authenticated session rows from `services/api/data/sessions.json` on startup (they currently get re-hydrated from `provider-token-store.json` even when `data/sessions.json` is deleted). Out of scope for this entry.
