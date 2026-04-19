@@ -517,3 +517,16 @@ Expected on-device outcomes:
 2. Click "Use Debug Session" → transitions to Home, but Home renders "No content available" (Latest rail is gone). Library renders "Library is empty". Search with any query shows its normal "No results for ..." body.
 3. Force-stop + relaunch → still skips LOGIN_REQUIRED and returns straight to Home (session persistence intact); Home still empty for local-debug.
 4. From a dev laptop, `curl http://127.0.0.1:4000/v1/debug/content/feed -H "x-session-id: <SID>"` still returns Local Debug Track / Local Debug Playlist — proves the debug rail is preserved as an explicit fallback, not a silent default.
+
+### Entry 016
+- Status: completed (on-device validation of Entry 015)
+- Summary: Validated Entry 015's "no debug rails in the default signed-in UI" behavior on physical Fire TV against the rebuilt API service.
+- Device: Fire TV (AFTKM), same LAN target used in Entry 014.
+- What passed:
+  1. Home empty-state: after clicking "Use Debug Session" on the LOGIN_REQUIRED screen, Home rendered "No content available" instead of the previous `Latest` rail with `Local Debug Track` / `Local Debug Playlist`. This is the core behavior change from Entry 015 and is confirmed working on device.
+  2. Library empty-state: navigating to Library with the same debug session active rendered "Library is empty" (no `Local Debug Session` section).
+  3. Silent restore into empty signed-in state: force-stop + relaunch skipped LOGIN_REQUIRED and returned straight to the empty Home. Session persistence from Entry 013/014 is intact; the empty-Home change does not regress the restore path.
+- What failed: nothing observed.
+- Regressions: none. LOGIN_REQUIRED, session persistence / restore, launcher visibility, banner, hardened WebView boundary, and global Play/Pause behavior are all untouched by Entry 015 and continue to work as validated in Entry 014.
+- Remaining blocker: none for this validation pass. On-device verification of `/v1/debug/content/feed` returning Local Debug rails was not re-run in this pass (the server-side curl matrix in Entry 015 already confirmed it with the fixture; no on-device surface reads from that route yet).
+- Next step: optional follow-ups — (a) add a dev-only "Load debug rails" action in the Diagnostics screen that hits `/v1/debug/content/feed` so the debug playback regression from Entry 014 can be re-run without curl; (b) wire a real provider-OAuth device pairing flow so an authenticated Fire TV user can see actual personalized content on Home/Library instead of an empty signed-in state. Both are separate entries.
