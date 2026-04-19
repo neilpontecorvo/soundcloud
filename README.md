@@ -2,11 +2,66 @@
 
 A private, sideloaded **Amazon Fire TV** client that combines:
 
-- A native **Kotlin Android TV / Fire TV shell** for deterministic D-pad UX and playback controls.
-- An embedded **WebView SoundCloud player host** for MVP playback.
-- A modular monorepo layout with API-backed session bootstrap and backend-normalized content proxy routes.
+- A native **Kotlin Android TV / Fire TV shell** for deterministic D-pad UX and focus control
+- A backend **Node.js + TypeScript API** for session bootstrap, provider OAuth, token handling, and normalized content proxy routes
+- A hardened **WebView-based controlled player host** for hybrid playback
+- Backend-fed **Home / Search / Library** screens with selectable content cards
 
-> This project is **not affiliated with or endorsed by SoundCloud**. Do not use SoundCloud trademarks or branding in a way that implies official ownership.
+> This project is **not affiliated with, endorsed by, or provided by SoundCloud**. Do not use SoundCloud branding, names, or iconography in a way that implies official ownership.
+
+## Current Status
+
+**Phase 1 and Phase 2 are complete. Phase 3 runtime validation is functionally complete.**
+
+What is currently verified working on physical Fire TV:
+
+- Native Fire TV shell with deterministic remote navigation
+- Backend session bootstrap and polling
+- File-backed session persistence on the API service so authenticated sessions
+  survive a backend restart
+- Automatic session restore on app launch: a persisted `sessionId` is
+  re-validated against the backend before any UI is shown, and the app goes
+  straight to Home when the backend still recognizes it as `authenticated`
+- `LOGIN_REQUIRED` as the normal unauthenticated state surfaced to the user
+  (replaces the prior "stuck in bootstrapping" behavior on first run or after a
+  backend reset)
+- Debug-only local auth completion, now exposed as an explicit fallback button
+  on the `LOGIN_REQUIRED` screen rather than the default happy path
+- Provider-backed backend proxy routes for:
+  - `GET /v1/feed`
+  - `GET /v1/search`
+  - `GET /v1/library`
+- Home / Search / Library screens consuming backend-normalized content
+- Hardened WebView boundary with:
+  - controlled host strategy
+  - allowlisted hosts
+  - minimal JS bridge surface
+  - production-safe WebView settings
+  - locked top-level navigation to the controlled injected document
+- Base64 `loadData(...)` controlled player host on physical Fire TV
+- Widget bootstrap chain on device:
+  - `pre-api-inline`
+  - `widget-api-onload`
+  - `post-api-inline`
+  - `player ready`
+- End-to-end playback from card selection to audible playback on Fire TV
+- Global Play/Pause handling on the physical Fire TV remote
+- Fire TV launcher visibility
+- Fire TV custom banner visibility on the home screen tile
+- Local backend access from Fire TV over LAN
+- Two-region Player layout with top playback surface and bottom native queue list
+
+## Remaining Work
+
+No major blocker remains from the prior runtime-validation cycle.
+
+Current remaining work is limited to validation/polish items such as:
+
+1. confirming `Next` / `Previous` behavior under real queue/list conditions
+2. deciding whether `Fast Forward` / `Rewind` should remain unsupported or gain a real seek/jump contract
+3. lint / manifest cleanup
+4. deprecated API cleanup
+5. UI and search polish
 
 ## Monorepo Layout
 
@@ -26,90 +81,134 @@ soundcloud/
 
 ## Tech Stack
 
-
-- **Client:** Kotlin, Android TV/Fire TV APIs, Gradle Kotlin DSL
+- **Client:** Kotlin, Android TV / Fire TV APIs, Gradle Kotlin DSL
 - **Player Host:** Android `WebView`
-- **Backend Service:** Node.js + TypeScript + Express
+- **Backend Service:** Node.js, TypeScript, Express
 - **Shared Contracts:** TypeScript package for API DTOs/events
 
 ## Prerequisites
 
-- Java 17 (recommended for Android Gradle Plugin 8.x)
-- Android SDK + platform tools for Fire TV deployment
-- Node.js 20+ for backend placeholder
+- Java 17
+- Android SDK + platform tools
+- Node.js 20+
+- Amazon Fire TV device or Android TV / Fire TV test target
 
-## Quick Start
+## Local Development
 
-### 1) Fire TV Client
+### 1) Start the Backend
+
+Run from the repo root:
 
 ```bash
-cd apps/firetv-client
-./gradlew tasks
+cd ~/soundcloud
+ENABLE_DEBUG_AUTH=true HOST=0.0.0.0 PORT=4000 npm --workspace @soundcloud-private/api start
 ```
 
-Build debug APK:
+Health check:
 
 ```bash
+curl http://localhost:4000/health
+```
+
+For physical Fire TV validation on the local network, the backend host has been tested at:
+
+```text
+http://192.168.1.167:4000
+```
+
+### 2) Build the Fire TV Client
+
+```bash
+cd ~/soundcloud/apps/firetv-client
+export ANDROID_HOME="$HOME/Library/Android/sdk"
+export JAVA_HOME="$([ -x /usr/libexec/java_home ] && /usr/libexec/java_home -v 17)"
+export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
 ./gradlew :app:assembleDebug
 ```
 
-### 2) Sideload to Fire TV
-
-1. Enable **Developer Options** on Fire TV device.
-2. Turn on **ADB Debugging** and **Apps from Unknown Sources**.
-3. Connect device and install:
+### 3) Install to Fire TV
 
 ```bash
 adb connect <FIRE_TV_IP>:5555
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Launch from Fire TV app list.
-
-### 3) Backend Service
+Launch:
 
 ```bash
-cd services/api
-npm install
-npm run dev
+adb shell am start -a android.intent.action.MAIN -c android.intent.category.LEANBACK_LAUNCHER -n com.neilpontecorvo.soundcloudfiretv/.app.MainActivity
 ```
 
-Health and content endpoints:
+### 4) Useful Device Logs
+
+For app-only runtime logs:
 
 ```bash
-curl http://localhost:4000/health
-curl -H "X-Session-Id: <session_id>" http://localhost:4000/v1/feed
+adb logcat -c
+adb logcat -v time -s MainActivity WebPlayerHostController HardenedWebViewClient PlayerBridge
 ```
 
-For local Fire TV validation, non-production API runs expose a debug-only
-`POST /v1/debug/authenticate-session` route and the Android debug diagnostics
-screen shows an **Authenticate Debug Session** action. This does not replace
-provider OAuth and is disabled when `NODE_ENV=production`.
+## Backend Service Summary
 
-## Controls (Remote)
+The backend API is responsible for:
+
+- device session bootstrap and polling
+- provider OAuth exchange and refresh
+- server-side token persistence for local development
+- normalized feed/search/library proxy responses
+- session validation and cache behavior
+
+Debug-only local auth completion exists for Fire TV validation:
+
+```bash
+curl -X POST http://localhost:4000/v1/debug/authenticate-session \
+  -H "Content-Type: application/json" \
+  -d '{"sessionId":"<session_id>"}'
+```
+
+This route is local-development only and is disabled in production.
+
+## Remote Controls
 
 - **D-pad:** deterministic focus movement
-- **Center/Select:** activate focused element
-- **Back:** app back stack / screen back
-- **Play/Pause:** transport command routed to player module
-- **Menu:** open context/settings hook
+- **Center / Select:** activate focused element
+- **Back:** app back / screen back
+- **Play / Pause:** transport command routed to player module and now validated on physical Fire TV
+- **Next / Previous:** command path exists and should be kept under runtime validation
+- **Fast Forward / Rewind:** intentionally unsupported no-op behavior until a real seek/jump contract exists
+- **Menu:** settings / context hook
 
-## MVP Scope (Phase 1)
+## Current Scope
 
-- Native app shell: Home, Search, Library, Player, Settings
-- Focus manager abstraction + remote input handler
-- WebView-based player host screen
-- Settings + diagnostics screen (reload, clear cookies/session, app info)
-- Backend service for auth/session lifecycle and provider-backed content proxy responses
+### Verified complete enough
+- Fire TV native shell
+- backend session/auth/content pipeline
+- backend-normalized content loading
+- selectable card-based Home / Search / Library UI
+- hardened WebView architecture
+- diagnostics/settings screen
+- local debug auth path for device testing
+- end-to-end playback validation from selected card -> Player -> ready/playing state
+- global Play/Pause handling on device
+- launcher presence and banner visibility on Fire TV home screen
+
+### Remaining scope
+- validate `Next` / `Previous` more broadly
+- optional `FF/REW` seek contract later
+- runtime polish and cleanup
 
 ## Important Compliance Notes
 
-- No downloading, ripping, or offline capture flows.
-- Provider secrets and provider tokens stay on the backend. The client only uses backend session ids and normalized API responses.
-- Debug authentication is local-development only and must not be treated as production auth.
-- Avoid fake branding or implying official SoundCloud ownership.
+- No downloading, ripping, stream capture, offline capture, or ad-stripping flows
+- Provider secrets and provider tokens stay on the backend
+- The Android client should only use backend session ids and normalized API responses
+- Debug authentication is local-development only and must never be treated as production auth
+- Do not imply official SoundCloud ownership or endorsement
 
-See:
+## Reference Docs
+
+- `services/api/README.md`
 - `docs/architecture.md`
 - `docs/roadmap.md`
 - `docs/compliance-notes.md`
+- `WORKLOG.md`

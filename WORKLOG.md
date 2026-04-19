@@ -40,7 +40,8 @@
 ### Fire TV
 - Device IP: `192.168.1.168`
 - Important: disable VPN during debugging and runtime validation unless split tunneling / LAN allow is confirmed.
-- Fire TV OS/build version: add here when captured from device settings.
+- Fire TV model observed in logs: `AFTKM`
+- Fire TV WebView package observed in logs: `com.amazon.webview.chromium`
 
 ### Android app config
 - `compileSdk = 34`
@@ -89,7 +90,7 @@ adb shell am start -a android.intent.action.MAIN -c android.intent.category.LEAN
 #### App-specific logs only
 ```bash
 adb logcat -c
-adb logcat -v time -s MainActivity WebPlayerHostController HardenedWebViewClient PlayerBridge
+adb logcat -v time -s MainActivity PlayerBridge
 ```
 
 ---
@@ -103,7 +104,7 @@ adb logcat -v time -s MainActivity WebPlayerHostController HardenedWebViewClient
   - `WebPlayerHostController`
   - `HardenedWebViewClient`
   - `PlayerBridge`
-- Do not work on styling, docs, or new features while the Player success path is unresolved.
+- Do not reopen playback-runtime debugging unless playback breaks again.
 - Do not assume summaries equal proof; physical device verification decides state.
 - Do not test with the Fire TV VPN enabled unless local LAN access is explicitly confirmed.
 - Do not let Player loading state leak into Home/Search/Library.
@@ -118,62 +119,87 @@ adb logcat -v time -s MainActivity WebPlayerHostController HardenedWebViewClient
 - Fire TV app builds locally.
 - Fire TV can reach backend over LAN.
 - Debug cleartext config for local Fire TV testing exists.
-- Home and Library render selectable cards.
-- Search has a focused input field.
-- Nav/focus visibility is usable on the 70" 4K display.
+- Home, Search, and Library render and are navigable.
+- Nav/focus visibility is usable on the TV display.
 - Hardened WebView / controlled host model exists.
 - Session/auth is verified working on Fire TV.
-- Selected track metadata now reaches Player.
+- Selected track metadata reaches Player.
 - Player no longer globally hijacks all screens with `Connecting...`.
+- Physical Fire TV now proves full playback path success.
+- Global Play/Pause behavior is proven on device.
+- Launcher visibility is restored on the Fire TV home screen.
+- Custom TV banner is now visible on the Fire TV home screen.
 
 ### Latest device checkpoint
 - Settings confirms:
   - Backend: `http://192.168.1.167:4000`
   - Session status: `authenticated`
   - Authenticated: `true`
-- Selecting `Local Debug Track` and `Local Debug Playlist` from Library reaches Player with selected metadata visible.
-- Physical Fire TV now proves the controlled player readiness path:
-  - controlled `data:` document loads and remains active
-  - bootstrap stages fire (`pre-api-inline`, `widget-api-onload`, `post-api-inline`)
-  - `player ready` is received natively
-  - prior privacy-page takeover is blocked
-- This confirms:
-  - backend is not the blocker
-  - session/auth is not the blocker
-  - card selection/handoff is not the blocker
-  - WebView lifecycle/recomposition churn is no longer the blocker
-  - CSP / malformed document / baseUrl / URL-encoding issues are no longer the blocker
+- Selecting `Local Debug Track` reaches Player with selected metadata visible.
+- Controlled WebView player host loads and remains on the controlled `data:` document.
+- Bootstrap stages fire:
+  - `pre-api-inline`
+  - `widget-api-onload`
+  - `post-api-inline`
+- SoundCloud widget binds successfully.
+- Widget reports `player ready`.
+- Debug play invocation fires.
+- Widget reports current sound state:
+  - `{"hasSound":true,"id":"293","title":"Flickermood","user":"Forss"}`
+- Widget reports `widget_event_fired=play`.
+- Audio playback is confirmed working on physical Fire TV.
+- Play/Pause behavior is confirmed working after moving focus away from the top navigation area.
+- App tile is visible on the Fire TV home screen.
+- Custom banner is visible on the Fire TV home screen.
 
-### Current blocker
-- Player runtime on physical Fire TV now reaches `ready`, but actual playback still does not start.
-- Latest device traces show:
-  - `player ready` fires
-  - controlled document stays active
-  - no `JS -> Native: playback state changed: isPlaying=true`
-  - no `JS -> Native: track changed: id=..., title=...`
-- Current unresolved zone is now narrowed to:
-  - explicit widget play not being triggered after READY
-  - final content-specific widget URL being wrong/incomplete
-  - widget state remaining paused / unresolved even after READY
+### Runtime interpretation
+This confirms:
+- backend is not the blocker
+- session/auth is not the blocker
+- card selection/handoff is not the blocker
+- WebView lifecycle/recomposition churn is not the blocker
+- CSP / malformed document / baseUrl / URL-encoding issues are not the blocker
+- playback path is proven end-to-end on device
+- prior focus-scoped Play/Pause behavior is resolved
+- launcher visibility and banner packaging are resolved
+
+### Current active issues
+1. **Fast Forward / Rewind unsupported by design**
+   - FF/REW currently do nothing meaningful.
+   - Current implementation intentionally treats them as unsupported no-ops because no reliable seek/jump bridge contract exists yet.
+   - This is expected behavior, not a regression.
+
+2. **Next / Previous should be kept under runtime validation**
+   - Command path exists.
+   - End-to-end behavior should still be confirmed across more than one playable item / queue state.
+
+3. **Cleanup / polish remains**
+   - Manifest/lint cleanup
+   - deprecated API cleanup
+   - UI polish
+   - search UX polish
+   - optional native overlay/player refinement
 
 ---
 
 ## 6. Completion Estimate
 ### Internal prototype
-- Overall completion: **88%**
+- Overall completion: **97%**
 
 ### Polished private-use app
-- Overall completion: **72%**
+- Overall completion: **86%**
 
 ### Module estimate
 - Backend/session/auth/content: **92%**
-- TV shell/nav/cards/focus: **85%**
-- Player runtime on physical Fire TV: **70–75%**
-- Final cleanup/polish: **40–50%**
+- TV shell/nav/cards/focus: **92%**
+- Player runtime on physical Fire TV: **96%**
+- Media transport integration: **88%**
+- Launcher/banner packaging: **95%**
+- Final cleanup/polish: **55–65%**
 
 ### Estimated time remaining
-- Stable working prototype if scope stays frozen: **2–4 focused hours**
-- Additional polish and cleanup after that: **8–16 hours**
+- Stable working prototype if scope stays frozen: **0–2 focused hours**
+- Additional polish and cleanup after that: **6–12 hours**
 
 ---
 
@@ -195,46 +221,48 @@ adb logcat -v time -s MainActivity WebPlayerHostController HardenedWebViewClient
 - Home/Search/Library evolved from text panels to usable prototype UI.
 - Hardened WebView boundary and controlled host approach added.
 - Player lifecycle was reworked to avoid global loading.
-- Player now remains idle when opened without selection.
-- Card selection now routes selected metadata into Player.
-- Player timeout behavior now shows a precise native error instead of an indefinite generic loading state.
-- Player readiness path is now proven on physical Fire TV.
+- Player remains idle when opened without selection.
+- Card selection routes selected metadata into Player.
+- Physical Fire TV now proves real playback success.
 - Two-region Player layout is in place for playback surface + native queue.
-- Top-level privacy-page escape is blocked; controlled document remains active through READY.
+- Top-level privacy-page escape is blocked; controlled document remains active through READY and PLAY.
+- Media transport command path was wired for:
+  - Play
+  - Pause
+  - Play/Pause toggle
+  - Next
+  - Previous
+- Play/Pause interception was moved out of the prior focus-scoped path and is now validated working on device.
+- FF/REW logging path was added as unsupported no-op behavior.
+- Launcher/banner packaging was fixed by removing the conflicting shape wrapper and wiring a real PNG banner.
+- App icon metadata was restored so the launcher tile surfaces correctly.
+- Fire TV home screen now shows the app tile and custom banner.
 
 ### Audit results
 - `npm run check:api` passed.
 - `npm --workspace @soundcloud-private/api run build` passed.
 - `npm audit` passed with 0 vulnerabilities.
 - `./gradlew :app:assembleDebug` passed.
-- `./gradlew :app:lintDebug` failed on TV manifest issues only.
+- APK badging verified launcher activity, icon, and banner wiring.
 
 ---
 
 ## 8. Remaining Tasks
 ### Critical path
-1. Verify latest APK is installed on Fire TV before each runtime conclusion.
-2. Disable VPN on Fire TV during validation.
-3. Capture one clean app-only log trace for:
-   - selecting `Local Debug Track` or `Local Debug Playlist`
-   - `player ready`
-   - first post-READY state transition
-4. Prove why READY does not transition into PLAY:
-   - log the exact final iframe `src` inserted into the HTML
-   - trigger a one-shot debug `widget.play()` after READY
-   - log `widget.isPaused(...)` and `widget.getCurrentSound(...)`
-   - confirm whether PLAY callback ever fires
-5. Fix only the Player runtime path until one real card-to-player success path works on the physical Fire TV.
+1. Validate Next/Previous behavior against real queue/list state on device.
+2. Decide whether FF/REW should remain unsupported or gain a real seek/jump contract later.
+3. Fix TV lint manifest issues:
+   - `android.hardware.touchscreen` should be optional
+   - clean debug manifest overlay TV lint behavior
+4. Remove deprecated `saveFormData`.
+5. Clean hardcoded strings / unused resources / low-risk warnings.
 
 ### Secondary tasks
-- Confirm two-region Player layout behavior on device with multi-item sections
-- Fix TV lint manifest issues:
-  - `android.hardware.touchscreen` should be optional
-  - clean debug manifest overlay TV lint behavior
-- Remove deprecated `saveFormData`
-- Clean hardcoded strings / unused resources / low-risk warnings
 - Improve Search results experience
-- Final player/native overlay polish
+- Native overlay/player polish
+- Better error messaging
+- Telemetry/crash diagnostics hooks
+- Optional richer queue behavior/state sync refinement
 
 ---
 
@@ -242,13 +270,12 @@ adb logcat -v time -s MainActivity WebPlayerHostController HardenedWebViewClient
 - Fire TV VPN may interfere with local LAN/backend/widget access.
 - Installed APK may lag behind local repo unless explicitly rebuilt/reinstalled.
 - Many prior log captures were Fire TV/Alexa/system noise, not app traces.
-- Only these log tags matter for player debugging:
+- Only these log tags matter for focused debugging:
   - `MainActivity`
-  - `WebPlayerHostController`
-  - `HardenedWebViewClient`
   - `PlayerBridge`
 - Current local backend should be started from repo root, not home directory.
 - Keep `AGENTS.md` and `.claude/` status in mind if they remain uncommitted.
+- FF/REW are not regressions at this stage; they are intentionally unsupported.
 
 ---
 
@@ -267,11 +294,12 @@ adb logcat -v time -s MainActivity WebPlayerHostController HardenedWebViewClient
 
 ## 11. Current Next Step
 **Single-task focus:**
-Prove one real end-to-end Player readiness path on device:
+Treat playback, Play/Pause transport, launcher visibility, and banner as solved. Move forward with validation/polish tasks only:
+- confirm Next/Previous behavior under real queue conditions
+- decide future FF/REW behavior
+- clean lint/deprecations/resources
 
-`Selected card -> Player -> first ready/play callback OR precise widget/bridge failure cause`
-
-Do not work on unrelated styling, new features, or docs until that is proven.
+Do not reopen playback-runtime debugging unless playback itself stops working again.
 
 ---
 
@@ -290,7 +318,7 @@ When resuming work:
 
 ## 13. Session Handoff Template
 ### Last completed task
-- [fill in]
+- Verified end-to-end playback, global Play/Pause handling, launcher visibility, and banner visibility on physical Fire TV
 
 ### Active agent
 - [Codex / Claude Code / other]
@@ -320,10 +348,10 @@ When resuming work:
 - [fill in]
 
 ### Remaining blocker
-- [fill in]
+- No major blocker; only validation/polish tasks remain
 
 ### Exact next step
-- [fill in]
+- Validate Next/Previous behavior on device and continue cleanup/polish tasks.
 
 ---
 
@@ -364,69 +392,65 @@ When resuming work:
 - Result: Player shows selected track metadata and no longer fails at the old generic global connection stage
 
 ### Entry 008
-- Status: in progress
-- Summary: Player widget/bridge readiness on Fire TV remains the main blocker
-- Result: unresolved; selected item reaches Player, but no `ready` callback arrives before the 15-second timeout
+- Status: completed
+- Summary: Controlled WebView bootstrap/READY path proven on Fire TV
+- Result: WebView/widget/bridge readiness path verified on device
 
+### Entry 009
+- Status: completed
+- Summary: End-to-end playback verified on physical Fire TV
+- Result: Player loads selected content, reaches READY, invokes play, reports current sound state, fires PLAY event, and audio playback is confirmed working on device.
 
-### Entry 023
-- Status: post-READY playback diagnostic scope defined; device trace confirms readiness path remains stable
-- Summary: Device validation after Entry 022 proved the privacy-page escape is fixed. The controlled `data:` document remains active through bootstrap and READY. `player ready` continues to fire, but playback still does not transition into `isPlaying=true`, and no `track changed` event arrives.
-- Evidence from latest device run:
-  - `Page finished: data://null injected=true controlledActive=true`
-  - `DocSnapshot ... globals={"hasSC":true,"hasWidget":true,"hasNative":true,"hasHost":true}`
-  - `JS -> Native: player ready`
-  - repeated `loading state changed: isLoading=false` after READY
-  - no `playback state changed: isPlaying=true`
-  - no `track changed: id=..., title=...`
-- Interpretation: readiness/bootstrap/navigation lockdown are now verified. The active unresolved zone is post-READY playback start. Current leading hypotheses are:
-  1. widget play is not being triggered
-  2. the final content-specific widget URL inserted into the iframe is still wrong or incomplete
-- Next targeted pass (diagnostic only):
-  - log the exact final iframe `src` actually inserted into the HTML
-  - trigger a one-shot debug `widget.play()` after READY
-  - log `widget.isPaused(...)`
-  - log `widget.getCurrentSound(...)`
-  - log whether PLAY callback ever fires
-- Do not change in that pass unless new evidence reopens them:
-  - allowlist
-  - CSP
-  - navigation lockdown
-  - layout
-- Build state at handoff: latest APK installs and reaches READY on Fire TV; next cycle is post-READY play diagnostics only.
+### Entry 010
+- Status: completed
+- Summary: Media transport bridge command path added for core controls
+- Result: Play, Pause, Play/Pause toggle, Next, and Previous now dispatch through the player bridge; FF/REW intentionally remain unsupported no-ops pending a real seek/jump contract.
 
-### Entry 023
-- Status: launcher banner consolidated to single direct PNG; device validation pending
-- Summary: Device run after Entry 022 confirmed navigation lockdown + playback working + play/pause on device. Remaining blocker is Fire TV Launcher home tile — still showing default/incorrect tile instead of the banner. Audit per user's 7 focus areas identified two concrete problems.
-- Root cause:
-  - `res/drawable/tv_banner.xml` existed as a shape drawable (dark 320×180 rectangle with `#111111` fill) — a wrapper, not a bitmap.
-  - `res/drawable-xhdpi/tv_banner.png` was the real image but only in the xhdpi bucket.
-  - Unqualified `drawable/` is density-equivalent to mdpi. Fire TV models span tvdpi (Stick 2nd/3rd gen), hdpi (Stick 4K), and xhdpi (Stick 4K Max). On non-xhdpi Fire TV models, resource resolution falls through to the unqualified `drawable/` shape rectangle instead of the xhdpi PNG — rendering exactly the dark "default/incorrect tile" the user reported.
-- Fix (resource only, per user directive "single direct bitmap banner resource path with no drawable alias/wrapper"):
-  - Deleted `app/src/main/res/drawable/tv_banner.xml` (shape wrapper). This was the actual root cause of the default-tile fallback on non-xhdpi Fire TV models.
-  - User replaced `tv_banner.png` with a correctly sized **320×180 px** asset matching Android TV Launcher spec exactly.
-  - Final banner resource placement: identical 320×180 PNG in both `drawable-nodpi/tv_banner.png` and `drawable-xhdpi/tv_banner.png`. xhdpi wins on Fire TV Stick 4K Max; nodpi covers tvdpi/hdpi/mdpi devices. No shape wrapper in the lookup path.
-- Manifest unchanged: `android:banner="@drawable/tv_banner"` at both `<application>` and `<activity>` for `LEANBACK_LAUNCHER`.
-- Build: `./gradlew :app:assembleDebug` PASSED.
-- APK verification via `aapt2 dump badging`:
-  - `application: ... banner='res/drawable-xhdpi-v4/tv_banner.png'`
-  - `leanback-launchable-activity: ... banner='res/drawable-xhdpi-v4/tv_banner.png'`
-  - Both `res/drawable-xhdpi-v4/tv_banner.png` and `res/drawable-nodpi-v4/tv_banner.png` packaged in APK (identical bytes). Density-appropriate lookup is unambiguous for all Fire TV models.
-- Pending (device): uninstall app, reboot Fire TV (or force-stop `com.amazon.tv.launcher`), reinstall APK. Fire TV Launcher caches banners aggressively — without a cache flush the old rectangle may persist.
-- Success condition: after reinstall (and if needed, a Fire TV reboot or Launcher force-stop), the app tile on the Fire TV home row shows the intended banner image instead of the default/dark tile.
+### Entry 011
+- Status: completed
+- Summary: Global Play/Pause handling fixed and validated on physical Fire TV
+- Result: prior focus-scoped transport behavior is resolved; Play/Pause works after focus moves away from the top navigation region.
 
-### Entry 024
-- Status: launcher icon added as packaged vector resource; device validation pending
-- Summary: Entry 023 device verification exposed a residual anomaly: `aapt2 dump badging` reported `icon=''` for both `<application>` and the leanback-launchable-activity even though the banner was correctly wired. Root cause: manifest referenced `@android:drawable/sym_def_app_icon` — a system-namespaced resource that is never packaged into the APK, so completeness-checking launchers see a missing icon.
-- Fix (manifest + new resource, no playback/transport/navigation changes):
-  - New `app/src/main/res/drawable/ic_launcher.xml` — vector drawable placeholder: rounded-corner square background `#FF7700` (user-selected default orange) with a centered white ▶ play-triangle glyph. Vector renders at any density so one resource covers all Fire TV models.
-  - `AndroidManifest.xml` `<application>`: `android:icon="@drawable/ic_launcher"`, added `android:roundIcon="@drawable/ic_launcher"`.
-  - `AndroidManifest.xml` `<activity>` (LEANBACK_LAUNCHER): added `android:icon="@drawable/ic_launcher"`.
-- Build: `./gradlew :app:assembleDebug` PASSED (16s).
-- APK verification via `aapt2 dump badging`:
-  - `application: ... icon='res/drawable/ic_launcher.xml' banner='res/drawable-xhdpi-v4/tv_banner.png'`
-  - `leanback-launchable-activity: ... icon='res/drawable/ic_launcher.xml' banner='res/drawable-xhdpi-v4/tv_banner.png'`
-  - `application-icon-{120,160,240,320,480,640,65534,65535}:'res/drawable/ic_launcher.xml'` — resolves at every density bucket including anydpi.
-- Pending (device): uninstall app, reboot Fire TV (or force-stop `com.amazon.tv.launcher`), reinstall APK.
-- Known optional follow-up (not a bug, user preference): the vector is a generic placeholder. A branded PNG can be swapped in later by dropping `ic_launcher.png` into `mipmap-xhdpi/` (and/or `mipmap-nodpi/`) and changing the manifest reference to `@mipmap/ic_launcher`. No code change required.
-- Success condition: Fire TV home row shows the banner tile, and Settings → Applications shows the orange-square ▶ icon instead of the Android default gear.
+### Entry 012
+- Status: completed
+- Summary: Launcher/banner packaging fixed and validated on physical Fire TV
+- Result: app appears on the Fire TV home screen again and the custom banner is visible on the tile.
+
+### Entry 013
+- Status: completed (build, typecheck, and on-device validation all passed)
+- Summary: Session persistence + explicit LOGIN_REQUIRED auth phase added across Android client and API service.
+- Changes:
+  - AppScreen.kt: added LOGIN_REQUIRED screen to the navigation enum.
+  - SessionPersistence.kt (new): SharedPreferences-backed wrapper storing only the sessionId.
+  - AuthGateway.kt: added restoreOrBootstrap() to the gateway contract.
+  - ApiBackedAuthGateway.kt: wired SessionPersistence and implemented restoreOrBootstrap() so a persisted sessionId is re-validated on launch before falling back to bootstrap.
+  - MainActivity.kt: routes startup by auth phase, renders the LOGIN_REQUIRED screen with a debug re-auth button.
+  - activity_main.xml: layout adjusted to accommodate the LOGIN_REQUIRED state.
+  - services/api/src/session/session-store.ts: file-backed atomic JSON persistence for authenticated sessions (replaces prior in-memory-only store).
+- Commands run: `./gradlew :app:assembleDebug` (BUILD SUCCESSFUL in 3m 25s); `npm run check` in services/api (tsc --noEmit clean).
+- Passed: Android debug APK builds green; API service typechecks clean.
+- Failed: none.
+- Remaining: none for this entry.
+- Result: client now has an explicit unauthenticated phase and API sessions survive backend restarts; ready for device validation.
+
+### Entry 014
+- Status: completed (on-device validation)
+- Summary: Validated Entry 013 session-persistence + LOGIN_REQUIRED flow on physical Fire TV (AFTKM @ 192.168.1.168) against rebuilt API service.
+- Commands run:
+  - `./gradlew :app:assembleDebug` (reused APK from Entry 013, BUILD SUCCESSFUL).
+  - Rebuilt API: `npm --workspace @soundcloud-private/api run build`.
+  - Wiped backend state: `rm -f services/api/data/sessions.json services/api/.local/provider-token-store.json`, restarted `node dist/index.js` with `ENABLE_DEBUG_AUTH=true`.
+  - `adb uninstall com.neilpontecorvo.soundcloudfiretv && adb install -r app-debug.apk && adb shell am start ... MainActivity`.
+  - `adb shell input keyevent 23` (DPAD_CENTER to click "Use Debug Session").
+  - `adb shell input keyevent KEYCODE_MEDIA_PLAY_PAUSE` (x2 for pause/play regression).
+- What passed:
+  1. Fresh-install cold start: app lands on LOGIN_REQUIRED with "Sign In Required / Private Cloud TV / Ready to sign in." and focuses "Use Debug Session" (debug route is now a fallback button, not the default happy path).
+  2. Debug auth → HOME: clicking Use Debug Session authenticates and navigates to HOME ("Cloud Player" title, Latest rail populated). Backend `sessions.json` picks up the authenticated session; device `shared_prefs/session_persistence.xml` holds `last_session_id`.
+  3. Silent restore: `force-stop` + relaunch with valid persisted sessionId goes straight to HOME without flashing LOGIN_REQUIRED.
+  4. Invalid-session fallback: wiping backend `sessions.json` + `provider-token-store.json` and restarting the API, then relaunching the app, correctly routes to LOGIN_REQUIRED, clears the stale sessionId from `shared_prefs` (confirmed empty `<map/>`), and completes a fresh bootstrap ("Ready to sign in.").
+  5. Playback intact: selecting `Local Debug Track` reaches Player, widget fires `ready` → `play`, sound resolves to `Flickermood` by `Forss`, and `isPaused=false` after debug play invocation.
+  6. Play/Pause key: global MEDIA_PLAY_PAUSE keycode still consumed at the Activity level (`Transport dispatch: command=toggle`) and widget responds with `pause` then `play` events across two presses.
+- What failed: nothing observed during validation.
+- Regressions: none to playback, launcher, banner, or Play/Pause.
+- Remaining blocker: none for this validation pass.
+- Next step: optional cleanup — purge old pre-Entry-013 authenticated session rows from `services/api/data/sessions.json` on startup (they currently get re-hydrated from `provider-token-store.json` even when `data/sessions.json` is deleted). Out of scope for this entry.

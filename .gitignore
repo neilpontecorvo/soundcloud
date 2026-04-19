@@ -10,3 +10,9 @@ dist/
 .env.*
 .local/
 *.iml
+
+# Per-agent session caches — not part of the repo
+.claude/
+
+# Runtime-only backend state (file-backed session store)
+services/api/data/
