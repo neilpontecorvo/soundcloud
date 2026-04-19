@@ -137,13 +137,35 @@ class MainActivity : AppCompatActivity(),
         super.onDestroy()
     }
 
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val action = RemoteInputHandler.mapKeyCode(event.keyCode)
+        if (!action.isTransportAction()) {
+            return super.dispatchKeyEvent(event)
+        }
+
+        val focused = describeFocusedView()
+        Log.i(
+            TAG,
+            "Raw media key received: key=${KeyEvent.keyCodeToString(event.keyCode)} action=$action eventAction=${event.action} repeat=${event.repeatCount} focus=$focused"
+        )
+
+        if (event.action == KeyEvent.ACTION_UP) {
+            val consumeUp = canDispatchTransportCommand()
+            Log.i(TAG, "Global media key up ${if (consumeUp) "consumed" else "passed"}: action=$action focus=$focused")
+            return if (consumeUp) true else super.dispatchKeyEvent(event)
+        }
+
+        if (event.action != KeyEvent.ACTION_DOWN) {
+            return super.dispatchKeyEvent(event)
+        }
+
+        val consumed = handleTransportAction(action, event.keyCode, event.repeatCount, focused)
+        Log.i(TAG, "Global media key ${if (consumed) "consumed" else "passed"}: action=$action focus=$focused")
+        return if (consumed) true else super.dispatchKeyEvent(event)
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         val action = RemoteInputHandler.mapKeyCode(keyCode)
-
-        if (action.isTransportAction()) {
-            val handled = handleTransportAction(action, keyCode, event?.repeatCount ?: 0)
-            if (handled) return true
-        }
 
         detailReturnScreen?.let { returnScreen ->
             if (action == RemoteAction.BACK) {
@@ -169,32 +191,39 @@ class MainActivity : AppCompatActivity(),
         return super.onKeyDown(keyCode, event)
     }
 
-    private fun handleTransportAction(action: RemoteAction, keyCode: Int, repeatCount: Int): Boolean {
+    private fun handleTransportAction(
+        action: RemoteAction,
+        keyCode: Int,
+        repeatCount: Int,
+        focusedView: String
+    ): Boolean {
         val keyName = KeyEvent.keyCodeToString(keyCode)
         val selected = selectedCard
         val activeWebView = playerWebView
         val hasPlayableSelection = !selected?.webUrl.isNullOrBlank()
-        val hasActivePlayer = activeWebView != null && hasPlayableSelection
-        val canHandleTransport = currentScreen == AppScreen.PLAYER || hasActivePlayer
+        val canDispatch = canDispatchTransportCommand()
 
         Log.i(
             TAG,
-            "Transport key received: key=$keyName action=$action screen=$currentScreen activePlayer=$hasActivePlayer selectedId=${selected?.id ?: "none"}"
+            "Transport key received: key=$keyName action=$action screen=$currentScreen activePlayer=${activeWebView != null} selectedId=${selected?.id ?: "none"} focus=$focusedView"
         )
 
-        if (!canHandleTransport) {
-            Log.i(TAG, "Transport key ignored: reason=outside_player key=$keyName action=$action")
+        if (!canDispatch) {
+            Log.i(
+                TAG,
+                "Transport key ignored: reason=${transportBlockReason()} key=$keyName action=$action screen=$currentScreen activePlayer=${activeWebView != null} hasPlayableSelection=$hasPlayableSelection focus=$focusedView"
+            )
             return false
-        }
-
-        if (activeWebView == null || !hasPlayableSelection) {
-            Log.i(TAG, "Transport key ignored: reason=no_active_player key=$keyName action=$action")
-            return true
         }
 
         if (repeatCount > 0) {
             Log.d(TAG, "Transport key repeat ignored: key=$keyName action=$action repeat=$repeatCount")
             return true
+        }
+
+        if (activeWebView == null) {
+            Log.i(TAG, "Transport key ignored: reason=no_active_webview key=$keyName action=$action")
+            return false
         }
 
         when (action) {
@@ -240,6 +269,29 @@ class MainActivity : AppCompatActivity(),
         RemoteAction.FAST_FORWARD,
         RemoteAction.REWIND -> true
         else -> false
+    }
+
+    private fun canDispatchTransportCommand(): Boolean {
+        return currentScreen == AppScreen.PLAYER &&
+            playerWebView != null &&
+            !selectedCard?.webUrl.isNullOrBlank()
+    }
+
+    private fun transportBlockReason(): String = when {
+        currentScreen != AppScreen.PLAYER -> "screen_not_player"
+        playerWebView == null -> "no_active_player"
+        selectedCard?.webUrl.isNullOrBlank() -> "no_playable_selection"
+        else -> "unknown"
+    }
+
+    private fun describeFocusedView(): String {
+        val focused = currentFocus ?: return "none"
+        val idName = if (focused.id != View.NO_ID) {
+            runCatching { resources.getResourceEntryName(focused.id) }.getOrDefault("id_${focused.id}")
+        } else {
+            "no_id"
+        }
+        return "${focused.javaClass.simpleName}#$idName"
     }
 
     // ContentCardSelectionListener implementation
