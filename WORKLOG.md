@@ -414,3 +414,19 @@ When resuming work:
   - Both `res/drawable-xhdpi-v4/tv_banner.png` and `res/drawable-nodpi-v4/tv_banner.png` packaged in APK (identical bytes). Density-appropriate lookup is unambiguous for all Fire TV models.
 - Pending (device): uninstall app, reboot Fire TV (or force-stop `com.amazon.tv.launcher`), reinstall APK. Fire TV Launcher caches banners aggressively — without a cache flush the old rectangle may persist.
 - Success condition: after reinstall (and if needed, a Fire TV reboot or Launcher force-stop), the app tile on the Fire TV home row shows the intended banner image instead of the default/dark tile.
+
+### Entry 024
+- Status: launcher icon added as packaged vector resource; device validation pending
+- Summary: Entry 023 device verification exposed a residual anomaly: `aapt2 dump badging` reported `icon=''` for both `<application>` and the leanback-launchable-activity even though the banner was correctly wired. Root cause: manifest referenced `@android:drawable/sym_def_app_icon` — a system-namespaced resource that is never packaged into the APK, so completeness-checking launchers see a missing icon.
+- Fix (manifest + new resource, no playback/transport/navigation changes):
+  - New `app/src/main/res/drawable/ic_launcher.xml` — vector drawable placeholder: rounded-corner square background `#FF7700` (user-selected default orange) with a centered white ▶ play-triangle glyph. Vector renders at any density so one resource covers all Fire TV models.
+  - `AndroidManifest.xml` `<application>`: `android:icon="@drawable/ic_launcher"`, added `android:roundIcon="@drawable/ic_launcher"`.
+  - `AndroidManifest.xml` `<activity>` (LEANBACK_LAUNCHER): added `android:icon="@drawable/ic_launcher"`.
+- Build: `./gradlew :app:assembleDebug` PASSED (16s).
+- APK verification via `aapt2 dump badging`:
+  - `application: ... icon='res/drawable/ic_launcher.xml' banner='res/drawable-xhdpi-v4/tv_banner.png'`
+  - `leanback-launchable-activity: ... icon='res/drawable/ic_launcher.xml' banner='res/drawable-xhdpi-v4/tv_banner.png'`
+  - `application-icon-{120,160,240,320,480,640,65534,65535}:'res/drawable/ic_launcher.xml'` — resolves at every density bucket including anydpi.
+- Pending (device): uninstall app, reboot Fire TV (or force-stop `com.amazon.tv.launcher`), reinstall APK.
+- Known optional follow-up (not a bug, user preference): the vector is a generic placeholder. A branded PNG can be swapped in later by dropping `ic_launcher.png` into `mipmap-xhdpi/` (and/or `mipmap-nodpi/`) and changing the manifest reference to `@mipmap/ic_launcher`. No code change required.
+- Success condition: Fire TV home row shows the banner tile, and Settings → Applications shows the orange-square ▶ icon instead of the Android default gear.
