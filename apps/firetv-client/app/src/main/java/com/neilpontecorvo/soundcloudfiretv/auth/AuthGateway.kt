@@ -44,4 +44,12 @@ interface AuthGateway {
     fun debugAuthenticateSession()
     fun refreshSession()
     fun clearSession()
+
+    /**
+     * Silent startup path: if a sessionId is already persisted on device,
+     * probe the backend. If the backend reports it authenticated, surface
+     * AUTHENTICATED directly with no user interaction. Otherwise clear the
+     * stale id and fall back to bootstrapSession().
+     */
+    fun restoreOrBootstrap()
 }

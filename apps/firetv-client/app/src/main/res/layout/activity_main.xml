@@ -27,7 +27,7 @@
             android:textColor="#FFFFFF"
             android:textSize="22sp"
             android:textStyle="bold"
-            android:text="Cloud Player"
+            android:text="NEILBEATS PLAYER"
             android:letterSpacing="0.02" />
 
         <!-- Navigation bar -->

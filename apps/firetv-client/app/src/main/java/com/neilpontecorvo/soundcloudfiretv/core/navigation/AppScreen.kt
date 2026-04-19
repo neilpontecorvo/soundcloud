@@ -5,5 +5,6 @@ enum class AppScreen(val title: String) {
     SEARCH("Search"),
     LIBRARY("Library"),
     PLAYER("Player"),
-    SETTINGS("Settings")
+    SETTINGS("Settings"),
+    LOGIN_REQUIRED("Sign In")
 }

@@ -26,7 +26,9 @@ import androidx.appcompat.app.AppCompatActivity
 import com.neilpontecorvo.soundcloudfiretv.BuildConfig
 import com.neilpontecorvo.soundcloudfiretv.R
 import com.neilpontecorvo.soundcloudfiretv.auth.ApiBackedAuthGateway
+import com.neilpontecorvo.soundcloudfiretv.auth.AuthSessionPhase
 import com.neilpontecorvo.soundcloudfiretv.auth.AuthSessionState
+import com.neilpontecorvo.soundcloudfiretv.auth.SessionPersistence
 import com.neilpontecorvo.soundcloudfiretv.content.ContentLoadState
 import com.neilpontecorvo.soundcloudfiretv.content.ContentRepository
 import com.neilpontecorvo.soundcloudfiretv.core.input.RemoteAction
@@ -61,7 +63,9 @@ class MainActivity : AppCompatActivity(),
     private lateinit var screenRenderer: ScreenRenderer
     private lateinit var apiClient: DeviceSessionApiClient
     private lateinit var authGateway: ApiBackedAuthGateway
+    private lateinit var sessionPersistence: SessionPersistence
     private lateinit var contentRepository: ContentRepository
+    private var userInSettings: Boolean = false
 
     // WebView hardening components
     private val webHost = WebPlayerHostController(
@@ -75,6 +79,7 @@ class MainActivity : AppCompatActivity(),
     private val authStateListener: (AuthSessionState) -> Unit = { state ->
         refreshSettingsBody(state)
         refreshContentForCurrentScreen(state)
+        routeByAuthState(state)
     }
 
     private var currentScreen: AppScreen = AppScreen.HOME
@@ -108,17 +113,23 @@ class MainActivity : AppCompatActivity(),
         focusCoordinator = FocusCoordinator(this)
         screenRenderer = ScreenRenderer(this, this)
         apiClient = DeviceSessionApiClient(BuildConfig.API_BASE_URL)
+        sessionPersistence = SessionPersistence(this)
         authGateway = ApiBackedAuthGateway(
             apiClient = apiClient,
             deviceName = android.os.Build.MODEL.ifBlank { "Fire TV" },
-            appVersion = BuildConfig.VERSION_NAME
+            appVersion = BuildConfig.VERSION_NAME,
+            sessionPersistence = sessionPersistence
         )
         contentRepository = ContentRepository(apiClient)
         authGateway.addListener(authStateListener)
 
         setupNavigation()
-        navigateTo(AppScreen.HOME)
-        authGateway.bootstrapSession()
+        // Choose initial screen from the already-persisted state so an
+        // authenticated cold start renders HOME directly, while an unknown
+        // state parks on LOGIN_REQUIRED until the backend probe completes.
+        val startupState = authGateway.getCurrentState()
+        navigateTo(if (startupState.isAuthenticated) AppScreen.HOME else AppScreen.LOGIN_REQUIRED)
+        authGateway.restoreOrBootstrap()
     }
 
     private fun setupNavigation() {
@@ -530,12 +541,15 @@ class MainActivity : AppCompatActivity(),
         updateTitle(screen)
         contentFrame.removeAllViews()
 
+        userInSettings = screen == AppScreen.SETTINGS
+
         val view = when (screen) {
             AppScreen.HOME -> renderLoadingState("Home")
             AppScreen.SEARCH -> buildSearchScreen()
             AppScreen.LIBRARY -> renderLoadingState("Library")
             AppScreen.PLAYER -> buildPlayerView()
             AppScreen.SETTINGS -> buildSettingsView()
+            AppScreen.LOGIN_REQUIRED -> buildLoginRequiredView(authGateway.getCurrentState())
         }
 
         contentFrame.addView(view)
@@ -555,6 +569,7 @@ class MainActivity : AppCompatActivity(),
             AppScreen.LIBRARY -> "Your Library"
             AppScreen.PLAYER -> "Now Playing"
             AppScreen.SETTINGS -> "Settings"
+            AppScreen.LOGIN_REQUIRED -> "Sign In Required"
         }
     }
 
@@ -1481,6 +1496,135 @@ class MainActivity : AppCompatActivity(),
         )
         return rows.joinToString(separator = "\n")
     }
+
+    private fun routeByAuthState(state: AuthSessionState) {
+        // Respect the user's explicit choice to be in Settings — don't yank
+        // them out to LOGIN_REQUIRED while they're inspecting diagnostics or
+        // running debug auth. Also don't fight the user's in-progress flow
+        // inside LOGIN_REQUIRED itself (where a bootstrap is underway).
+        if (userInSettings) return
+
+        runOnUiThread {
+            when (state.phase) {
+                AuthSessionPhase.AUTHENTICATED -> {
+                    if (currentScreen == AppScreen.LOGIN_REQUIRED) {
+                        navigateTo(AppScreen.HOME)
+                    }
+                }
+                AuthSessionPhase.AWAITING_AUTH,
+                AuthSessionPhase.EXPIRED,
+                AuthSessionPhase.ERROR -> {
+                    if (currentScreen != AppScreen.LOGIN_REQUIRED &&
+                        currentScreen != AppScreen.SETTINGS
+                    ) {
+                        navigateTo(AppScreen.LOGIN_REQUIRED)
+                    } else if (currentScreen == AppScreen.LOGIN_REQUIRED) {
+                        refreshLoginRequiredBody(state)
+                    }
+                }
+                AuthSessionPhase.BOOTSTRAPPING,
+                AuthSessionPhase.REFRESHING,
+                AuthSessionPhase.IDLE -> {
+                    if (currentScreen == AppScreen.LOGIN_REQUIRED) {
+                        refreshLoginRequiredBody(state)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun buildLoginRequiredView(state: AuthSessionState): View {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setBackgroundColor(0xFF050505.toInt())
+            setPadding(dp(48), dp(60), dp(48), dp(60))
+        }
+
+        root.addView(TextView(this).apply {
+            text = "SIGN IN REQUIRED"
+            setTextColor(0xFFFF6600.toInt())
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            letterSpacing = 0.08f
+            gravity = Gravity.CENTER
+        })
+
+        root.addView(TextView(this).apply {
+            text = "Private Cloud TV"
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 28f)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(10), 0, dp(6))
+        })
+
+        val bodyText = TextView(this).apply {
+            id = R.id.panelBody
+            text = loginRequiredMessage(state)
+            setTextColor(0xFFAAAAAA.toInt())
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(4), 0, dp(24))
+        }
+        root.addView(bodyText)
+
+        if (BuildConfig.DEBUG) {
+            val debugButton = Button(this).apply {
+                id = View.generateViewId()
+                text = "Use Debug Session"
+                setTextColor(Color.WHITE)
+                setBackgroundResource(R.drawable.tv_focusable_background)
+                setPadding(dp(24), 0, dp(24), 0)
+                minWidth = dp(240)
+                minHeight = dp(48)
+                isFocusable = true
+                isFocusableInTouchMode = true
+                isClickable = true
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    dp(48)
+                )
+                setOnClickListener {
+                    // Debug-only convenience: ensure a fresh backend session
+                    // exists, then stamp it authenticated via the debug route.
+                    // Real users land in LOGIN_REQUIRED without this button.
+                    val phase = authGateway.getCurrentState().phase
+                    if (phase == AuthSessionPhase.AWAITING_AUTH) {
+                        authGateway.debugAuthenticateSession()
+                    } else {
+                        authGateway.bootstrapSession()
+                        handler.postDelayed({
+                            if (authGateway.getCurrentState().phase == AuthSessionPhase.AWAITING_AUTH) {
+                                authGateway.debugAuthenticateSession()
+                            }
+                        }, 400)
+                    }
+                }
+            }
+            TvFocusStyler.apply(debugButton, focusedScale = 1.06f)
+            root.addView(debugButton)
+            root.post { debugButton.requestFocus() }
+        }
+
+        return root
+    }
+
+    private fun refreshLoginRequiredBody(state: AuthSessionState) {
+        if (currentScreen != AppScreen.LOGIN_REQUIRED) return
+        contentFrame.findViewById<TextView>(R.id.panelBody)?.text = loginRequiredMessage(state)
+    }
+
+    private fun loginRequiredMessage(state: AuthSessionState): String = when (state.phase) {
+        AuthSessionPhase.BOOTSTRAPPING -> "Checking your session..."
+        AuthSessionPhase.REFRESHING -> "Refreshing your session..."
+        AuthSessionPhase.ERROR -> "We couldn't reach the backend.\n${state.lastErrorMessage ?: "Please try again shortly."}"
+        AuthSessionPhase.EXPIRED -> "Your session has expired. Please sign in again."
+        AuthSessionPhase.AWAITING_AUTH -> "Ready to sign in."
+        else -> "Please sign in to continue."
+    }
+
+    private val handler by lazy { Handler(Looper.getMainLooper()) }
 
     data class PlayerUiState(
         val isLoading: Boolean = false,

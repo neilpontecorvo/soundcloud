@@ -9,7 +9,8 @@ import java.util.concurrent.Executors
 class ApiBackedAuthGateway(
     private val apiClient: DeviceSessionApiClient,
     private val deviceName: String,
-    private val appVersion: String
+    private val appVersion: String,
+    private val sessionPersistence: SessionPersistence? = null
 ) : AuthGateway {
 
     private val executor = Executors.newSingleThreadExecutor()
@@ -129,7 +130,56 @@ class ApiBackedAuthGateway(
     }
 
     override fun clearSession() {
+        sessionPersistence?.clear()
         setState(AuthSessionState())
+    }
+
+    override fun restoreOrBootstrap() {
+        val persistedId = sessionPersistence?.getPersistedSessionId()
+        if (persistedId.isNullOrBlank()) {
+            bootstrapSession()
+            return
+        }
+
+        setState(AuthSessionState(phase = AuthSessionPhase.BOOTSTRAPPING, sessionId = persistedId))
+        executor.execute {
+            try {
+                val response = apiClient.getSession(persistedId)
+                val phase = AuthSessionPhase.fromApiStatus(response.status)
+                if (phase == AuthSessionPhase.AUTHENTICATED) {
+                    setState(
+                        AuthSessionState(
+                            phase = phase,
+                            sessionId = response.sessionId,
+                            expiresAtIso = response.expiresAtIso,
+                            authenticatedAtIso = response.authenticatedAtIso,
+                            accessTokenExpiresAtIso = response.accessTokenExpiresAtIso
+                        )
+                    )
+                    return@execute
+                }
+                // Session exists but is not authenticated (awaiting_auth / expired / error).
+                // Drop the stale id and start a fresh bootstrap so the device never gets
+                // stuck on a half-state session from a prior run.
+                sessionPersistence?.clear()
+                bootstrapSession()
+            } catch (error: ApiException) {
+                // 401 invalid_session is the normal "backend forgot us" case — drop id, bootstrap fresh.
+                sessionPersistence?.clear()
+                bootstrapSession()
+            } catch (error: Exception) {
+                // Network or parse error on startup — leave the persisted id in place so a
+                // later retry can still succeed, but surface ERROR so the UI shows a
+                // login-required state rather than hanging in BOOTSTRAPPING.
+                setState(
+                    AuthSessionState(
+                        phase = AuthSessionPhase.ERROR,
+                        sessionId = persistedId,
+                        lastErrorMessage = error.message ?: error.javaClass.simpleName
+                    )
+                )
+            }
+        }
     }
 
     fun shutdown() {
@@ -163,6 +213,9 @@ class ApiBackedAuthGateway(
         synchronized(lock) {
             state = nextState
             snapshot = listeners.toList()
+        }
+        if (nextState.phase == AuthSessionPhase.AUTHENTICATED && !nextState.sessionId.isNullOrBlank()) {
+            sessionPersistence?.saveSessionId(nextState.sessionId)
         }
         mainHandler.post {
             snapshot.forEach { listener -> listener.invoke(nextState) }
