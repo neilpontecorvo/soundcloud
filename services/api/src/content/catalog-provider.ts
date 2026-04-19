@@ -51,7 +51,12 @@ export class ProviderCatalogProvider implements CatalogProvider {
   ) {}
 
   async getFeed(session: DeviceSession): Promise<FeedPayload> {
-    if (this.credentials.isLocalDebugSession(session)) return localDebugFeed();
+    // Local-debug sessions are not real provider-authenticated users, so the
+    // default signed-in UI must not silently render debug rails as if they
+    // were real personalized content. The dev-only `GET /v1/debug/content/feed`
+    // route still returns the debug items for explicit playback regression
+    // testing.
+    if (this.credentials.isLocalDebugSession(session)) return emptyFeed();
 
     const accessToken = await this.credentials.getAccessToken(session);
     const json = await this.providerGet(this.config.feedPath, accessToken);
@@ -62,7 +67,7 @@ export class ProviderCatalogProvider implements CatalogProvider {
   }
 
   async search(query: string, session: DeviceSession): Promise<SearchPayload> {
-    if (this.credentials.isLocalDebugSession(session)) return localDebugSearch(query);
+    if (this.credentials.isLocalDebugSession(session)) return emptySearch(query);
 
     const accessToken = await this.credentials.getAccessToken(session);
     const params = new URLSearchParams();
@@ -78,7 +83,7 @@ export class ProviderCatalogProvider implements CatalogProvider {
   }
 
   async getLibrary(session: DeviceSession): Promise<LibraryPayload> {
-    if (this.credentials.isLocalDebugSession(session)) return localDebugLibrary();
+    if (this.credentials.isLocalDebugSession(session)) return emptyLibrary();
 
     const accessToken = await this.credentials.getAccessToken(session);
     const [tracks, playlists] = await Promise.all([
@@ -226,7 +231,26 @@ const isRecord = (value: unknown): value is Record<string, unknown> => (
   typeof value === 'object' && value !== null && !Array.isArray(value)
 );
 
-const localDebugItems: MediaCard[] = [
+const emptyFeed = (): FeedPayload => ({
+  generatedAtIso: new Date().toISOString(),
+  items: []
+});
+
+const emptySearch = (query: string): SearchPayload => ({
+  generatedAtIso: new Date().toISOString(),
+  query: query.trim(),
+  items: []
+});
+
+const emptyLibrary = (): LibraryPayload => ({
+  generatedAtIso: new Date().toISOString(),
+  sections: []
+});
+
+// Debug rails are retained for explicit dev-only fallback use (e.g. the
+// `/v1/debug/content/*` routes), but are no longer returned from the normal
+// content endpoints. See also: Entry 015 in WORKLOG.md.
+export const localDebugItems: MediaCard[] = [
   {
     id: 'local-debug-track',
     kind: 'track',
@@ -249,12 +273,12 @@ const localDebugItems: MediaCard[] = [
   }
 ];
 
-const localDebugFeed = (): FeedPayload => ({
+export const localDebugFeed = (): FeedPayload => ({
   generatedAtIso: new Date().toISOString(),
   items: localDebugItems
 });
 
-const localDebugSearch = (query: string): SearchPayload => {
+export const localDebugSearch = (query: string): SearchPayload => {
   const normalizedQuery = query.trim();
   const searchableQuery = normalizedQuery.toLocaleLowerCase();
   const items = searchableQuery.length === 0
@@ -273,7 +297,7 @@ const localDebugSearch = (query: string): SearchPayload => {
   };
 };
 
-const localDebugLibrary = (): LibraryPayload => ({
+export const localDebugLibrary = (): LibraryPayload => ({
   generatedAtIso: new Date().toISOString(),
   sections: [
     {

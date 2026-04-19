@@ -454,3 +454,66 @@ When resuming work:
 - Regressions: none to playback, launcher, banner, or Play/Pause.
 - Remaining blocker: none for this validation pass.
 - Next step: optional cleanup — purge old pre-Entry-013 authenticated session rows from `services/api/data/sessions.json` on startup (they currently get re-hydrated from `provider-token-store.json` even when `data/sessions.json` is deleted). Out of scope for this entry.
+
+### Entry 015
+- Status: completed (API build + API typecheck + Android assembleDebug all passed; local curl smoke test confirmed the new content behavior; on-device validation still pending)
+- Summary: Stopped silently serving `Local Debug Track` / `Local Debug Playlist` as the default signed-in Home/Library/Search content. Real provider-backed content is now the default path for authenticated sessions; debug rails are only reachable via explicit dev-only routes.
+- Motivation: prior to this entry, any authenticated session whose provider credentials had `source: 'local_debug'` was routed inside `ProviderCatalogProvider` straight to the `localDebug*` helpers, so Home/Library/Search always rendered the debug items — the "signed-in experience" was structurally the debug experience, which blocked Phase 4 content work.
+- Changes:
+  - `services/api/src/content/catalog-provider.ts`:
+    - `getFeed` / `search` / `getLibrary` now return an empty payload (rather than `localDebugFeed/Search/Library`) when `credentials.isLocalDebugSession(session)` is true. Real provider sessions are unchanged — they continue to hit `providerGet(...)` against the upstream API.
+    - Added `emptyFeed()` / `emptySearch(query)` / `emptyLibrary()` helpers.
+    - Exported `localDebugItems`, `localDebugFeed`, `localDebugSearch`, `localDebugLibrary` so the new debug-only routes can reuse them without duplicating the fixture.
+  - `services/api/src/routes/debug.ts`:
+    - Added `GET /v1/debug/content/feed`, `/v1/debug/content/search`, `/v1/debug/content/library`.
+    - Added a `requireDebugEnabled` middleware so the whole debug surface is off when `ENABLE_DEBUG_AUTH=false` or `NODE_ENV=production`.
+    - Added a `requireLocalDebugSession` middleware that rejects with `invalid_session` unless the caller's session is actually a local-debug one — real provider sessions can never accidentally surface debug rails through these routes.
+    - The existing `POST /v1/debug/authenticate-session` is untouched and still guarded inline.
+  - No Android client changes. `ContentRepository` already maps `items.isEmpty() → ContentLoadState.Empty`, and `MainActivity.handleContentState` already renders "No content available" (Home) and "Library is empty" (Library) for that state, so the signed-in UI now shows a clean empty state for local-debug sessions without any client-side code change. Hardened WebView, allowlist, session persistence, LOGIN_REQUIRED, launcher/banner, and global Play/Pause behavior are all unchanged.
+- Validation:
+  - `npm --workspace @soundcloud-private/api run check` → clean.
+  - `npm --workspace @soundcloud-private/api run build` → clean (`tsc -p tsconfig.json`, no errors).
+  - `./gradlew :app:assembleDebug` → `BUILD SUCCESSFUL` (APK produced, no new lint regressions).
+  - Local curl smoke test against `dist/index.js` on port 4099 with an isolated `SESSION_STORE_PATH` + `PROVIDER_TOKEN_STORE_PATH` and `ENABLE_DEBUG_AUTH=true`:
+    - `POST /v1/device/bootstrap` → session id issued.
+    - `POST /v1/debug/authenticate-session` → session flips to `authenticated` with `source=local_debug`.
+    - `GET /v1/feed` → `{"items":[]}` (previously returned Local Debug Track + Local Debug Playlist).
+    - `GET /v1/library` → `{"sections":[]}` (previously returned the `debug-local` section).
+    - `GET /v1/search?q=flicker` → `{"items":[]}`.
+    - `GET /v1/debug/content/feed` → the two debug items (Local Debug Track + Local Debug Playlist, webUrl `https://soundcloud.com/forss/flickermood`).
+    - `GET /v1/debug/content/library` → the `debug-local` section.
+    - `GET /v1/debug/content/search?q=flicker` → filtered debug items (empty for `flicker` because the substring filter matches title/subtitle/creator/kind, none of which contain "flicker"; `?q=` with an empty query or `?q=local` would return both).
+    - `GET /v1/debug/content/feed` with no `x-session-id` → `401 invalid_session` (guard works).
+- What passed: both builds, typecheck, and the full curl matrix above.
+- What failed: nothing.
+- Known effects (not regressions):
+  - On Fire TV with a local-debug session, Home will now render "No content available" and Library "Library is empty" instead of a populated Latest rail. This is the intended outcome — it's the "clean signed-in empty/error state" called out in the task goals.
+  - The on-device playback smoke test from Entry 014 (selecting Local Debug Track from Home) can no longer be reproduced by picking a card out of Home, because Home is empty for debug sessions. The underlying playback path is unchanged; the debug items can still be reached through `/v1/debug/content/feed` (or by curl) to re-prove playback if needed. Adding a small "Load debug rails" button in the Diagnostics screen that hits `/v1/debug/content/feed` is a natural follow-up, but was intentionally left out of this entry to keep scope narrow (no new UI features).
+- Remaining blocker: none for this backend change. Real provider content cannot actually be exercised on device yet, because no real provider OAuth flow has been wired to Fire TV — Entry 013/014 only validated the local-debug path. Reaching real personalized feed/library on the TV itself still depends on either a real device-auth pairing flow or a provisioned provider token being attached to a real session.
+- Next step: run the device regression described below (section "On-device regression steps"); afterward, the natural follow-up entries are (a) optionally exposing a dev-only "Load debug rails" diagnostics action so playback can be re-proven without curl, and (b) real provider OAuth pairing so Home can render actual personalized content.
+
+On-device regression steps (to run from `~/soundcloud`):
+
+```bash
+# 1. Rebuild the backend and restart it with debug auth enabled
+npm --workspace @soundcloud-private/api run build
+ENABLE_DEBUG_AUTH=true HOST=0.0.0.0 PORT=4000 npm --workspace @soundcloud-private/api start &
+
+# 2. Reinstall the Fire TV APK (no Kotlin changed, but reinstall for clean state)
+cd apps/firetv-client
+export ANDROID_HOME="$HOME/Library/Android/sdk"
+export JAVA_HOME="$([ -x /usr/libexec/java_home ] && /usr/libexec/java_home -v 17)"
+export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
+./gradlew :app:assembleDebug
+adb connect <FIRE_TV_IP>:5555
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb shell am start -a android.intent.action.MAIN -c android.intent.category.LEANBACK_LAUNCHER \
+  -n com.neilpontecorvo.soundcloudfiretv/.app.MainActivity
+```
+
+Expected on-device outcomes:
+
+1. Cold launch with no persisted session → LOGIN_REQUIRED (unchanged from Entry 014).
+2. Click "Use Debug Session" → transitions to Home, but Home renders "No content available" (Latest rail is gone). Library renders "Library is empty". Search with any query shows its normal "No results for ..." body.
+3. Force-stop + relaunch → still skips LOGIN_REQUIRED and returns straight to Home (session persistence intact); Home still empty for local-debug.
+4. From a dev laptop, `curl http://127.0.0.1:4000/v1/debug/content/feed -H "x-session-id: <SID>"` still returns Local Debug Track / Local Debug Playlist — proves the debug rail is preserved as an explicit fallback, not a silent default.
