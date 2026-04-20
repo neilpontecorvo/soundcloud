@@ -32,6 +32,9 @@ Optional provider settings:
 
 ```bash
 ENABLE_DEBUG_AUTH=true
+PROVIDER_AUTHORIZE_URL=https://secure.soundcloud.com/authorize
+PROVIDER_AUTH_PUBLIC_BASE_URL=http://192.168.1.167:4000
+PROVIDER_OAUTH_SCOPE=...
 PROVIDER_TOKEN_URL=https://secure.soundcloud.com/oauth/token
 PROVIDER_API_BASE_URL=https://api.soundcloud.com
 PROVIDER_FEED_PATH=/me/activities
@@ -55,6 +58,9 @@ should replace this with a managed encrypted persistence layer.
 - `GET /health`
 - `POST /v1/device/bootstrap`
 - `GET /v1/session/:sessionId`
+- `GET /v1/auth/pair`
+- `GET /v1/auth/start?user_code=<code>`
+- `GET /v1/auth/callback`
 - `POST /v1/auth/exchange`
 - `POST /v1/auth/refresh`
 - `POST /v1/debug/authenticate-session` (local development only)
@@ -64,6 +70,13 @@ should replace this with a managed encrypted persistence layer.
 
 Auth exchange and refresh require provider configuration and never expose provider
 credentials or tokens to the Android client.
+
+Fire TV sign-in uses a server-side pairing flow. `POST /v1/device/bootstrap`
+creates a short-lived user code and URL for the TV. The user opens that URL on
+another device, the API redirects to the provider authorization page, and the
+provider callback exchanges the authorization code server-side before marking
+the original backend session authenticated. The Fire TV only polls backend
+session state; provider tokens never leave the API service.
 
 Content proxy routes require an authenticated backend session via the
 `X-Session-Id` header. Feed, search, and library responses are fetched through

@@ -24,6 +24,7 @@ data class AuthSessionState(
     val phase: AuthSessionPhase = AuthSessionPhase.IDLE,
     val sessionId: String? = null,
     val verificationUri: String? = null,
+    val verificationUriComplete: String? = null,
     val userCode: String? = null,
     val expiresAtIso: String? = null,
     val authenticatedAtIso: String? = null,

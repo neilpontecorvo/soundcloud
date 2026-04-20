@@ -103,6 +103,7 @@ class MainActivity : AppCompatActivity(),
 
     // WebView diagnostic state for display
     private var lastBlockedNavigation: String? = null
+    private var providerSignInPollRunnable: Runnable? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -533,6 +534,9 @@ class MainActivity : AppCompatActivity(),
         val leavingPlayer = currentScreen == AppScreen.PLAYER && screen != AppScreen.PLAYER
         if (leavingPlayer) {
             releasePlayerHost(clearSelection = false)
+        }
+        if (screen != AppScreen.LOGIN_REQUIRED) {
+            stopProviderSignInPolling()
         }
 
         detailReturnScreen = null
@@ -1213,6 +1217,7 @@ class MainActivity : AppCompatActivity(),
             onReload = { playerWebView?.let(webHost::reload) },
             onClearCookies = { webHost.clearCookies() },
             onClearSession = {
+                stopProviderSignInPolling()
                 authGateway.clearSession()
                 releasePlayerHost(clearSelection = true)
                 lastBlockedNavigation = null
@@ -1507,6 +1512,7 @@ class MainActivity : AppCompatActivity(),
         runOnUiThread {
             when (state.phase) {
                 AuthSessionPhase.AUTHENTICATED -> {
+                    stopProviderSignInPolling()
                     if (currentScreen == AppScreen.LOGIN_REQUIRED) {
                         navigateTo(AppScreen.HOME)
                     }
@@ -1569,10 +1575,34 @@ class MainActivity : AppCompatActivity(),
         }
         root.addView(bodyText)
 
+        val signInButton = Button(this).apply {
+            id = View.generateViewId()
+            text = if (state.phase == AuthSessionPhase.AWAITING_AUTH) {
+                "Check Sign-In Status"
+            } else {
+                "Start Provider Sign In"
+            }
+            setTextColor(Color.WHITE)
+            setBackgroundResource(R.drawable.tv_focusable_background)
+            setPadding(dp(24), 0, dp(24), 0)
+            minWidth = dp(280)
+            minHeight = dp(48)
+            isFocusable = true
+            isFocusableInTouchMode = true
+            isClickable = true
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                dp(48)
+            )
+            setOnClickListener { startProviderSignIn() }
+        }
+        TvFocusStyler.apply(signInButton, focusedScale = 1.06f)
+        root.addView(signInButton)
+
         if (BuildConfig.DEBUG) {
             val debugButton = Button(this).apply {
                 id = View.generateViewId()
-                text = "Use Debug Session"
+                text = "Use Debug Fallback"
                 setTextColor(Color.WHITE)
                 setBackgroundResource(R.drawable.tv_focusable_background)
                 setPadding(dp(24), 0, dp(24), 0)
@@ -1584,7 +1614,9 @@ class MainActivity : AppCompatActivity(),
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                     dp(48)
-                )
+                ).apply {
+                    topMargin = dp(12)
+                }
                 setOnClickListener {
                     // Debug-only convenience: ensure a fresh backend session
                     // exists, then stamp it authenticated via the debug route.
@@ -1604,9 +1636,9 @@ class MainActivity : AppCompatActivity(),
             }
             TvFocusStyler.apply(debugButton, focusedScale = 1.06f)
             root.addView(debugButton)
-            root.post { debugButton.requestFocus() }
         }
 
+        root.post { signInButton.requestFocus() }
         return root
     }
 
@@ -1620,8 +1652,54 @@ class MainActivity : AppCompatActivity(),
         AuthSessionPhase.REFRESHING -> "Refreshing your session..."
         AuthSessionPhase.ERROR -> "We couldn't reach the backend.\n${state.lastErrorMessage ?: "Please try again shortly."}"
         AuthSessionPhase.EXPIRED -> "Your session has expired. Please sign in again."
-        AuthSessionPhase.AWAITING_AUTH -> "Ready to sign in."
+        AuthSessionPhase.AWAITING_AUTH -> providerSignInInstructions(state)
         else -> "Please sign in to continue."
+    }
+
+    private fun providerSignInInstructions(state: AuthSessionState): String {
+        val signInUrl = state.verificationUriComplete ?: state.verificationUri
+        val urlLine = if (signInUrl.isNullOrBlank()) {
+            "Waiting for sign-in link..."
+        } else {
+            "Open this link on your phone or computer:\n$signInUrl"
+        }
+        val codeLine = state.userCode?.let { "\n\nCode: $it" } ?: ""
+        return "$urlLine$codeLine\n\nAfter provider authorization, this TV will continue automatically."
+    }
+
+    private fun startProviderSignIn() {
+        val state = authGateway.getCurrentState()
+        when (state.phase) {
+            AuthSessionPhase.AWAITING_AUTH -> authGateway.pollSession()
+            AuthSessionPhase.BOOTSTRAPPING,
+            AuthSessionPhase.REFRESHING -> Unit
+            else -> authGateway.bootstrapSession()
+        }
+        startProviderSignInPolling()
+    }
+
+    private fun startProviderSignInPolling() {
+        stopProviderSignInPolling()
+        val runnable = object : Runnable {
+            override fun run() {
+                val state = authGateway.getCurrentState()
+                if (currentScreen != AppScreen.LOGIN_REQUIRED || state.phase == AuthSessionPhase.AUTHENTICATED) {
+                    stopProviderSignInPolling()
+                    return
+                }
+                if (state.phase == AuthSessionPhase.AWAITING_AUTH) {
+                    authGateway.pollSession()
+                }
+                handler.postDelayed(this, SIGN_IN_POLL_INTERVAL_MS)
+            }
+        }
+        providerSignInPollRunnable = runnable
+        handler.postDelayed(runnable, 1000L)
+    }
+
+    private fun stopProviderSignInPolling() {
+        providerSignInPollRunnable?.let(handler::removeCallbacks)
+        providerSignInPollRunnable = null
     }
 
     private val handler by lazy { Handler(Looper.getMainLooper()) }
@@ -1638,5 +1716,6 @@ class MainActivity : AppCompatActivity(),
     companion object {
         private const val TAG = "MainActivity"
         private const val PLAYER_READY_TIMEOUT_MS = 15_000L
+        private const val SIGN_IN_POLL_INTERVAL_MS = 5_000L
     }
 }

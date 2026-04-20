@@ -164,16 +164,22 @@ This confirms:
 - launcher visibility and banner packaging are resolved
 
 ### Current active issues
-1. **Fast Forward / Rewind unsupported by design**
+1. **Real provider OAuth/device-pairing requires physical-device validation**
+   - Backend pairing endpoints and Fire TV LOGIN_REQUIRED primary sign-in UI are implemented.
+   - API typecheck/build, Android build, and local pairing-route smoke checks pass.
+   - Physical Fire TV validation is blocked in this session because `adb connect 192.168.1.168:5555` returns `No route to host`.
+   - A real provider sign-in still needs provider credentials configured on the backend and an on-device pairing/callback validation pass.
+
+2. **Fast Forward / Rewind unsupported by design**
    - FF/REW currently do nothing meaningful.
    - Current implementation intentionally treats them as unsupported no-ops because no reliable seek/jump bridge contract exists yet.
    - This is expected behavior, not a regression.
 
-2. **Next / Previous should be kept under runtime validation**
+3. **Next / Previous should be kept under runtime validation**
    - Command path exists.
    - End-to-end behavior should still be confirmed across more than one playable item / queue state.
 
-3. **Cleanup / polish remains**
+4. **Cleanup / polish remains**
    - Manifest/lint cleanup
    - deprecated API cleanup
    - UI polish
@@ -294,10 +300,13 @@ This confirms:
 
 ## 11. Current Next Step
 **Single-task focus:**
-Treat playback, Play/Pause transport, launcher visibility, and banner as solved. Move forward with validation/polish tasks only:
-- confirm Next/Previous behavior under real queue conditions
-- decide future FF/REW behavior
-- clean lint/deprecations/resources
+Treat playback, Play/Pause transport, launcher visibility, banner, session restore, LOGIN_REQUIRED, and empty local_debug signed-in UI as solved. The next task is physical-device validation of the real provider OAuth pairing flow added in Entry 017:
+- start the backend on LAN with real provider OAuth env vars, including `PROVIDER_AUTH_PUBLIC_BASE_URL=http://192.168.1.167:4000` and `PROVIDER_REDIRECT_URI=http://192.168.1.167:4000/v1/auth/callback`
+- rebuild/reinstall the APK
+- launch on Fire TV with VPN disabled / LAN confirmed
+- use the LOGIN_REQUIRED primary provider sign-in path
+- complete the browser provider callback
+- confirm relaunch restores the real provider session and Home/Library/Search use provider-backed content
 
 Do not reopen playback-runtime debugging unless playback itself stops working again.
 
@@ -530,3 +539,49 @@ Expected on-device outcomes:
 - Regressions: none. LOGIN_REQUIRED, session persistence / restore, launcher visibility, banner, hardened WebView boundary, and global Play/Pause behavior are all untouched by Entry 015 and continue to work as validated in Entry 014.
 - Remaining blocker: none for this validation pass. On-device verification of `/v1/debug/content/feed` returning Local Debug rails was not re-run in this pass (the server-side curl matrix in Entry 015 already confirmed it with the fixture; no on-device surface reads from that route yet).
 - Next step: optional follow-ups — (a) add a dev-only "Load debug rails" action in the Diagnostics screen that hits `/v1/debug/content/feed` so the debug playback regression from Entry 014 can be re-run without curl; (b) wire a real provider-OAuth device pairing flow so an authenticated Fire TV user can see actual personalized content on Home/Library instead of an empty signed-in state. Both are separate entries.
+
+### Entry 017
+- Status: implemented; local validation passed; physical Fire TV provider validation blocked by device reachability.
+- Summary: Added the first real provider OAuth pairing path for Fire TV. LOGIN_REQUIRED now has a real provider sign-in primary action; debug auth remains a debug-only fallback button.
+- Changes:
+  - Backend:
+    - Added short-lived provider auth pairing codes and CSRF state tracking in `services/api/src/provider/auth-pairing-store.ts`.
+    - `POST /v1/device/bootstrap` now returns `verificationUri`, `verificationUriComplete`, and `userCode` for TV pairing.
+    - Added `GET /v1/auth/pair` for browser code entry.
+    - Added `GET /v1/auth/start?user_code=<code>` to validate the TV code and redirect to the provider authorization URL.
+    - Added `GET /v1/auth/callback` to exchange the provider authorization code server-side and mark the original backend session authenticated.
+    - Added provider config for `PROVIDER_AUTHORIZE_URL`, `PROVIDER_OAUTH_SCOPE`, and `PROVIDER_AUTH_PUBLIC_BASE_URL`.
+    - Updated API contract and README docs for the pairing response/flow.
+  - Android:
+    - Added `verificationUriComplete` to bootstrap DTO/state.
+    - LOGIN_REQUIRED now focuses a primary `Start Provider Sign In` / `Check Sign-In Status` action.
+    - The sign-in screen displays the backend pairing URL and user code, then polls session status until the backend reports `authenticated`.
+    - Debug auth is still available only in debug builds as `Use Debug Fallback`, and is no longer the focused/primary sign-in path.
+- Commands run:
+  - `npm run check:api`
+  - `npm --workspace @soundcloud-private/api run build`
+  - `ANDROID_HOME=$HOME/Library/Android/sdk ./gradlew :app:assembleDebug`
+  - Local API smoke server on port 4012 with dummy provider env vars.
+  - `curl -s -X POST http://127.0.0.1:4012/v1/device/bootstrap -H 'Content-Type: application/json' -d '{"deviceName":"codex-smoke","appVersion":"0.1.0"}'`
+  - `curl -s -I 'http://127.0.0.1:4012/v1/auth/start?user_code=PGJM-FETN'`
+  - `curl -s 'http://127.0.0.1:4012/v1/auth/pair?user_code=PGJM-FETN'`
+  - `curl -s http://127.0.0.1:4012/v1/session/e092a809-70e6-49a4-b394-076fe65f5bca`
+  - `adb connect 192.168.1.168:5555`
+- What passed:
+  - API typecheck passed.
+  - API build passed.
+  - Android debug build passed.
+  - Local bootstrap smoke returned an awaiting-auth session with a pairing URL, complete URL, and user code.
+  - Local pairing page rendered a browser form with the code prefilled.
+  - Local auth start redirected to `https://secure.soundcloud.com/authorize` with `client_id`, `redirect_uri`, `response_type=code`, and `state`.
+  - Session polling stayed `awaiting_auth` before provider callback, as expected.
+- What failed:
+  - First local API server smoke attempt failed in the sandbox with `listen EPERM`; reran with approval and the server started successfully.
+  - Physical Fire TV validation could not start because `adb connect 192.168.1.168:5555` failed with `No route to host`.
+- Regressions: none observed in local/API/build validation. Playback, launcher/banner, Play/Pause, session restore, and content behavior were not changed directly, but still need the required physical-device regression pass after ADB/LAN access is restored.
+- Remaining blocker: Fire TV device is unreachable over ADB/LAN from this session, and real provider credentials/callback must be configured before proving full provider-authenticated content on device.
+- Exact next device step:
+  1. Confirm Fire TV VPN is off and the Mac can route to `192.168.1.168`.
+  2. Start backend from repo root with real provider env:
+     `ENABLE_DEBUG_AUTH=false HOST=0.0.0.0 PORT=4000 PROVIDER_AUTH_PUBLIC_BASE_URL=http://192.168.1.167:4000 PROVIDER_REDIRECT_URI=http://192.168.1.167:4000/v1/auth/callback PROVIDER_CLIENT_ID=<real> PROVIDER_CLIENT_SECRET=<real> npm --workspace @soundcloud-private/api start`
+  3. Rebuild/reinstall APK, launch the app, select `Start Provider Sign In`, open the displayed URL on a phone/laptop, complete provider authorization, and confirm the TV routes to Home with a non-local_debug authenticated session.

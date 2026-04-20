@@ -11,6 +11,7 @@ data class BootstrapSessionDto(
     val sessionId: String,
     val status: String,
     val verificationUri: String?,
+    val verificationUriComplete: String?,
     val userCode: String?,
     val expiresAtIso: String?
 )
@@ -82,6 +83,7 @@ class DeviceSessionApiClient(private val baseUrl: String) {
             sessionId = json.getString("sessionId"),
             status = json.getString("status"),
             verificationUri = json.optNullableString("verificationUri"),
+            verificationUriComplete = json.optNullableString("verificationUriComplete"),
             userCode = json.optNullableString("userCode"),
             expiresAtIso = json.optNullableString("expiresAtIso")
         )

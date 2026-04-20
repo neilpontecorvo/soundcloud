@@ -42,6 +42,7 @@ class ApiBackedAuthGateway(
                 phase = AuthSessionPhase.fromApiStatus(response.status),
                 sessionId = response.sessionId,
                 verificationUri = response.verificationUri,
+                verificationUriComplete = response.verificationUriComplete,
                 userCode = response.userCode,
                 expiresAtIso = response.expiresAtIso
             )

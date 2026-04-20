@@ -5,6 +5,9 @@ export interface ProviderConfig {
   clientId?: string;
   clientSecret?: string;
   redirectUri?: string;
+  authorizeUrl: string;
+  oauthScope?: string;
+  authPublicBaseUrl?: string;
   tokenUrl: string;
   apiBaseUrl: string;
   feedPath: string;
@@ -19,6 +22,9 @@ export const readProviderConfig = (): ProviderConfig => ({
   clientId: readNonEmpty(process.env.PROVIDER_CLIENT_ID),
   clientSecret: readNonEmpty(process.env.PROVIDER_CLIENT_SECRET),
   redirectUri: readNonEmpty(process.env.PROVIDER_REDIRECT_URI),
+  authorizeUrl: process.env.PROVIDER_AUTHORIZE_URL ?? 'https://secure.soundcloud.com/authorize',
+  oauthScope: readNonEmpty(process.env.PROVIDER_OAUTH_SCOPE),
+  authPublicBaseUrl: readNonEmpty(process.env.PROVIDER_AUTH_PUBLIC_BASE_URL),
   tokenUrl: process.env.PROVIDER_TOKEN_URL ?? 'https://secure.soundcloud.com/oauth/token',
   apiBaseUrl: process.env.PROVIDER_API_BASE_URL ?? 'https://api.soundcloud.com',
   feedPath: process.env.PROVIDER_FEED_PATH ?? '/me/activities',

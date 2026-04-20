@@ -17,6 +17,7 @@ export interface SessionBootstrapResponse {
   sessionId: string;
   status: SessionStatus;
   verificationUri?: string | null;
+  verificationUriComplete?: string | null;
   userCode?: string | null;
   expiresAtIso: string;
   pollIntervalSeconds: number;

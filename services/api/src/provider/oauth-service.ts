@@ -23,6 +23,19 @@ interface ProviderTokenResponse {
 export class ProviderOAuthService {
   constructor(private readonly config: ProviderConfig) {}
 
+  createAuthorizationUrl(state: string): string {
+    const config = requireProviderOAuthConfig(this.config);
+    const url = new URL(config.authorizeUrl);
+    url.searchParams.set('client_id', config.clientId);
+    url.searchParams.set('redirect_uri', config.redirectUri);
+    url.searchParams.set('response_type', 'code');
+    url.searchParams.set('state', state);
+    if (config.oauthScope) {
+      url.searchParams.set('scope', config.oauthScope);
+    }
+    return url.toString();
+  }
+
   async exchangeAuthorizationCode(authorizationCode: string): Promise<ProviderTokenSet> {
     const config = requireProviderOAuthConfig(this.config);
     const body = new URLSearchParams({
