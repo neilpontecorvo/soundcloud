@@ -11,22 +11,16 @@ A private, sideloaded **Amazon Fire TV** client that combines:
 
 ## Current Status
 
-**Phase 1 and Phase 2 are complete. Phase 3 runtime validation is functionally complete.**
+**The app is now in a workable internal stage. Core runtime is proven. Remaining work is mostly UI/navigation polish and a small set of transport/cleanup tasks.**
 
 What is currently verified working on physical Fire TV:
 
 - Native Fire TV shell with deterministic remote navigation
 - Backend session bootstrap and polling
-- File-backed session persistence on the API service so authenticated sessions
-  survive a backend restart
-- Automatic session restore on app launch: a persisted `sessionId` is
-  re-validated against the backend before any UI is shown, and the app goes
-  straight to Home when the backend still recognizes it as `authenticated`
-- `LOGIN_REQUIRED` as the normal unauthenticated state surfaced to the user
-  (replaces the prior "stuck in bootstrapping" behavior on first run or after a
-  backend reset)
-- Debug-only local auth completion, now exposed as an explicit fallback button
-  on the `LOGIN_REQUIRED` screen rather than the default happy path
+- File-backed session persistence on the API service so authenticated sessions survive a backend restart
+- Automatic session restore on app launch using backend-authoritative re-validation of the persisted `sessionId`
+- `LOGIN_REQUIRED` as the normal unauthenticated state
+- Debug-only local auth completion exposed as an explicit fallback button on the `LOGIN_REQUIRED` screen
 - Provider-backed backend proxy routes for:
   - `GET /v1/feed`
   - `GET /v1/search`
@@ -51,17 +45,31 @@ What is currently verified working on physical Fire TV:
 - Local backend access from Fire TV over LAN
 - Two-region Player layout with top playback surface and bottom native queue list
 
-## Remaining Work
+## Current Product Reality
 
-No major blocker remains from the prior runtime-validation cycle.
+The app is no longer blocked on playback/runtime fundamentals.
 
-Current remaining work is limited to validation/polish items such as:
+Current remaining work is concentrated in these areas:
 
-1. confirming `Next` / `Previous` behavior under real queue/list conditions
-2. deciding whether `Fast Forward` / `Rewind` should remain unsupported or gain a real seek/jump contract
-3. lint / manifest cleanup
-4. deprecated API cleanup
-5. UI and search polish
+1. **TV-first UI polish**
+   - convert the main menu/navigation into the intended vertical TV layout
+   - tighten focus styling consistency
+   - improve 4K spacing/density
+
+2. **Navigation behavior fixes**
+   - keep selection movement deterministic left/right across cards, playlists, and components
+   - ensure the focus indicator moves between items rather than rails/cards visually shifting into a static selection state
+   - continue validating playlist/component navigation paths
+
+3. **Transport validation**
+   - confirm `Next` / `Previous` behavior under real queue/list conditions
+   - keep `Fast Forward` / `Rewind` unsupported unless a real seek/jump contract is intentionally added later
+
+4. **Cleanup**
+   - lint / manifest cleanup
+   - deprecated API cleanup
+   - low-risk resource/string cleanup
+   - search UX polish
 
 ## Monorepo Layout
 
@@ -155,6 +163,7 @@ The backend API is responsible for:
 - device session bootstrap and polling
 - provider OAuth exchange and refresh
 - server-side token persistence for local development
+- file-backed authenticated session persistence
 - normalized feed/search/library proxy responses
 - session validation and cache behavior
 
@@ -173,8 +182,8 @@ This route is local-development only and is disabled in production.
 - **D-pad:** deterministic focus movement
 - **Center / Select:** activate focused element
 - **Back:** app back / screen back
-- **Play / Pause:** transport command routed to player module and now validated on physical Fire TV
-- **Next / Previous:** command path exists and should be kept under runtime validation
+- **Play / Pause:** transport command routed to player module and validated on physical Fire TV
+- **Next / Previous:** command path exists and remains under runtime validation
 - **Fast Forward / Rewind:** intentionally unsupported no-op behavior until a real seek/jump contract exists
 - **Menu:** settings / context hook
 
@@ -191,8 +200,12 @@ This route is local-development only and is disabled in production.
 - end-to-end playback validation from selected card -> Player -> ready/playing state
 - global Play/Pause handling on device
 - launcher presence and banner visibility on Fire TV home screen
+- session persistence + silent restore flow
 
 ### Remaining scope
+- vertical TV navigation/menu refinement
+- deterministic left/right item navigation cleanup
+- broader validation for queue/playlist navigation paths
 - validate `Next` / `Previous` more broadly
 - optional `FF/REW` seek contract later
 - runtime polish and cleanup
@@ -207,8 +220,8 @@ This route is local-development only and is disabled in production.
 
 ## Reference Docs
 
+- `docs/index.md`
 - `services/api/README.md`
 - `docs/architecture.md`
 - `docs/roadmap.md`
-- `docs/compliance-notes.md`
 - `WORKLOG.md`
