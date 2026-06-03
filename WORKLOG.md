@@ -633,3 +633,31 @@ Expected on-device outcomes:
   4. Only if preflight passes, rebuild/install:
      `cd apps/firetv-client && ANDROID_HOME=$HOME/Library/Android/sdk ./gradlew :app:assembleDebug -PapiBaseUrl=http://192.168.1.167:4000 && adb connect 192.168.1.168:5555 && adb install -r app/build/outputs/apk/debug/app-debug.apk`
   5. Launch the app, select `Start Provider Sign In`, open the displayed URL on a phone/laptop, complete provider authorization, and confirm the TV routes to Home with a non-local_debug authenticated session.
+
+### Entry 019
+- Status: implemented; API typecheck passed; provider auth execution reached TV pairing screen but cannot complete without provider credentials.
+- Summary: Executed the provider-auth path far enough for the Fire TV to bootstrap and display a pairing URL/code. While doing that, fixed the API server so the documented `HOST=0.0.0.0` setting is actually honored by `app.listen`.
+- Changes:
+  - `services/api/src/config/env.ts`: added `host` to API env, defaulting to `127.0.0.1`.
+  - `services/api/src/index.ts`: now calls `app.listen(env.port, env.host, ...)` and logs `host:port`.
+- Commands run:
+  - `npm run preflight:firetv-provider-auth`
+  - `PROVIDER_AUTH_PUBLIC_BASE_URL=http://192.168.1.167:4000 PROVIDER_REDIRECT_URI=http://192.168.1.167:4000/v1/auth/callback ENABLE_DEBUG_AUTH=false HOST=0.0.0.0 PORT=4000 npm --workspace @soundcloud-private/api start`
+  - `curl -s -I 'http://127.0.0.1:4000/v1/auth/start?user_code=P7Y4-N4YC'`
+  - `curl -s 'http://127.0.0.1:4000/v1/auth/start?user_code=P7Y4-N4YC'`
+  - `npm --workspace @soundcloud-private/api run build`
+  - `npm run check:api`
+- What passed:
+  - Fire TV progressed from backend connection failure to the pairing screen.
+  - Pairing URL/code displayed on TV: `http://192.168.1.167:4000/v1/auth/start?user_code=P7Y4-N4YC`, code `P7Y4-N4YC`.
+  - API typecheck passed after the host-bind source change.
+- What failed / blocked:
+  - The pairing URL currently returns `501 provider_not_configured` because this shell has no `PROVIDER_CLIENT_ID` or `PROVIDER_CLIENT_SECRET`, and no repo `.env` file with those values was found.
+  - Preflight still reported ADB as `unauthorized` until the Fire TV accepts the ADB debugging prompt.
+- Regressions: none observed. This change only makes the documented API `HOST` setting explicit.
+- Exact next step:
+  1. Export real `PROVIDER_CLIENT_ID` and `PROVIDER_CLIENT_SECRET` along with `PROVIDER_AUTH_PUBLIC_BASE_URL=http://192.168.1.167:4000` and `PROVIDER_REDIRECT_URI=http://192.168.1.167:4000/v1/auth/callback`.
+  2. Restart the backend with `ENABLE_DEBUG_AUTH=false HOST=0.0.0.0 PORT=4000 npm --workspace @soundcloud-private/api start`.
+  3. Accept the Fire TV ADB authorization prompt so `adb devices` shows `192.168.1.168:5555	device`.
+  4. Rerun `npm run preflight:firetv-provider-auth`.
+  5. Start provider sign-in again on the TV and open the new displayed URL/code.

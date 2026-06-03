@@ -20,6 +20,6 @@ app.use('/v1', debugRouter);
 
 app.use(errorHandler);
 
-app.listen(env.port, () => {
-  console.log(`[api] listening on ${env.port} (${env.nodeEnv})`);
+app.listen(env.port, env.host, () => {
+  console.log(`[api] listening on ${env.host}:${env.port} (${env.nodeEnv})`);
 });
