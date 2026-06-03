@@ -1,5 +1,9 @@
 import { NextFunction, Request, Response, Router } from 'express';
-import { invalidRequest, invalidSession } from '../errors/api-error.js';
+import {
+  HttpApiError,
+  invalidRequest,
+  invalidSession
+} from '../errors/api-error.js';
 import {
   consumeProviderAuthPairingByState,
   createProviderAuthPairing,
@@ -108,6 +112,14 @@ authRouter.get('/auth/start', (req: Request, res: Response, next: NextFunction) 
 
     res.redirect(providerOAuthService.createAuthorizationUrl(pairing.state));
   } catch (error) {
+    if (error instanceof HttpApiError && error.error === 'provider_not_configured') {
+      res.status(error.statusCode).type('html').send(messagePage(
+        'Provider sign-in is not configured',
+        'Provider OAuth is missing on this backend. Restart the API with PROVIDER_CLIENT_ID, PROVIDER_CLIENT_SECRET, and PROVIDER_REDIRECT_URI, then return to the Fire TV app and start sign-in again.'
+      ));
+      return;
+    }
+
     next(error);
   }
 });

@@ -818,3 +818,50 @@ Expected on-device outcomes:
   - The TV-generated code `YHCJ-UQ2D` reached the running backend and returned `501 provider_not_configured`, proving the code was live and the remaining stop is OAuth configuration.
 - What failed / blocked:
   - Real provider redirect still cannot complete until the backend is restarted with real `PROVIDER_CLIENT_ID` and `PROVIDER_CLIENT_SECRET`.
+
+### Entry 025
+- Status: implemented and validated on the rebuilt backend; real provider redirect remains blocked by missing OAuth credentials.
+- Summary: Made the human-opened provider auth start URL render an HTML configuration page when provider OAuth env is missing. Previously `/v1/auth/start?user_code=<code>` fell through to the global JSON error handler for `provider_not_configured`, which was correct for API clients but poor for the phone/computer browser flow launched from the Fire TV screen.
+- Changes:
+  - `services/api/src/routes/auth.ts`: catches `provider_not_configured` from `providerOAuthService.createAuthorizationUrl(...)` inside `/auth/start` and renders the existing styled `messagePage(...)` with the missing env names.
+  - Kept the global error handler unchanged so machine-facing API routes still return JSON errors.
+- Commands run:
+  - `npm run check:api`
+  - `npm --workspace @soundcloud-private/api run build`
+  - `git diff --check`
+  - Restarted rebuilt API on `HOST=0.0.0.0 PORT=4000`.
+  - `curl -s -i -X POST http://127.0.0.1:4000/v1/device/bootstrap -H 'Content-Type: application/json' -d '{"deviceName":"codex-html-smoke","appVersion":"test"}'`
+  - `curl -s -i 'http://127.0.0.1:4000/v1/auth/start?user_code=LRJ5-SN68'`
+  - `curl -s -i http://127.0.0.1:4000/v1/feed`
+- What passed:
+  - API typecheck passed.
+  - API build passed.
+  - Fresh bootstrap generated live code `LRJ5-SN68`.
+  - `/v1/auth/start?user_code=LRJ5-SN68` returned HTTP 501 with `Content-Type: text/html` and the title `Provider sign-in is not configured`.
+  - `/v1/feed` without a session still returned HTTP 401 with `Content-Type: application/json`, confirming the HTML fallback is route-specific.
+- What failed / blocked:
+  - Real provider redirect still cannot complete until the backend is restarted with real `PROVIDER_CLIENT_ID` and `PROVIDER_CLIENT_SECRET`.
+
+### Entry 026
+- Status: preflight narrowed to the two real OAuth credential blockers.
+- Summary: Reran the provider-auth preflight outside the sandbox with `ANDROID_HOME`, `PROVIDER_AUTH_PUBLIC_BASE_URL`, and `PROVIDER_REDIRECT_URI` set. This removed the earlier sandbox-only LAN/ADB failures and proved the remaining authorization blocks are exactly the missing provider client id and client secret.
+- Commands run:
+  - `HOST=0.0.0.0 PORT=4000 ENABLE_DEBUG_AUTH=false PROVIDER_AUTH_PUBLIC_BASE_URL=http://192.168.1.167:4000 PROVIDER_REDIRECT_URI=http://192.168.1.167:4000/v1/auth/callback npm --workspace @soundcloud-private/api start`
+  - `ANDROID_HOME=$HOME/Library/Android/sdk PATH=$ANDROID_HOME/platform-tools:$PATH PROVIDER_AUTH_PUBLIC_BASE_URL=http://192.168.1.167:4000 PROVIDER_REDIRECT_URI=http://192.168.1.167:4000/v1/auth/callback npm run preflight:firetv-provider-auth`
+- What passed:
+  - Backend URL is LAN-routable.
+  - Backend health over LAN returned HTTP 200.
+  - `PROVIDER_REDIRECT_URI` is set and aligned with `http://192.168.1.167:4000/v1/auth/callback`.
+  - `PROVIDER_AUTH_PUBLIC_BASE_URL` is set and aligned with `http://192.168.1.167:4000`.
+  - Mac route to Fire TV IP uses `en1`.
+  - Fire TV ping replied from `192.168.1.168`.
+  - Fire TV ADB TCP port `192.168.1.168:5555` accepted a connection.
+  - ADB executable resolved to `/Users/neilpontecorvo/Library/Android/sdk/platform-tools/adb`.
+  - ADB connect/device listing passed for `192.168.1.168:5555`.
+- What failed / blocked:
+  - `PROVIDER_CLIENT_ID` is missing or empty.
+  - `PROVIDER_CLIENT_SECRET` is missing or empty.
+- Exact next step:
+  1. Restart the backend with the real `PROVIDER_CLIENT_ID` and `PROVIDER_CLIENT_SECRET` in addition to the already validated public base/callback env.
+  2. Rerun the same preflight command with those two env vars present.
+  3. Relaunch the TV app, use the fresh displayed code before the 10-minute TTL expires, and complete provider authorization in the browser.
