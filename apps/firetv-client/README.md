@@ -20,9 +20,24 @@ The debug build points at `http://10.0.2.2:4000` by default. For a physical Fire
 ./gradlew :app:assembleDebug -PapiBaseUrl=http://<LAN_HOST_IP>:4000
 ```
 
+For the real provider-auth pass, run the repo-root preflight before rebuilding
+or installing:
+
+```bash
+cd ~/soundcloud
+npm run preflight:firetv-provider-auth
+```
+
+Only continue when it passes, then build with the same backend URL:
+
+```bash
+cd ~/soundcloud/apps/firetv-client
+./gradlew :app:assembleDebug -PapiBaseUrl=http://192.168.1.167:4000
+```
+
 ## Notes
 
 - Optimized for 1080p TV layout.
 - Deterministic D-pad navigation via `FocusCoordinator`.
 - Remote commands mapped via `RemoteInputHandler`.
-- Session bootstrap and polling are API-backed; provider OAuth remains backend-only TODO work.
+- Session bootstrap, provider OAuth pairing, and polling are API-backed.

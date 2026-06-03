@@ -166,9 +166,10 @@ This confirms:
 ### Current active issues
 1. **Real provider OAuth/device-pairing requires physical-device validation**
    - Backend pairing endpoints and Fire TV LOGIN_REQUIRED primary sign-in UI are implemented.
+   - Repo now has a one-command provider-auth preflight: `npm run preflight:firetv-provider-auth`.
    - API typecheck/build, Android build, and local pairing-route smoke checks pass.
-   - Physical Fire TV validation is blocked in this session because `adb connect 192.168.1.168:5555` returns `No route to host`.
-   - A real provider sign-in still needs provider credentials configured on the backend and an on-device pairing/callback validation pass.
+   - Latest preflight reaches the Fire TV over LAN/TCP, but ADB is not authorized yet: `adb connect 192.168.1.168:5555` returns `failed to authenticate` and `adb devices` lists `192.168.1.168:5555	unauthorized`.
+   - A real provider sign-in still needs provider credentials configured on the backend, backend `/health` running on the LAN URL, ADB authorization on the Fire TV, and an on-device pairing/callback validation pass.
 
 2. **Fast Forward / Rewind unsupported by design**
    - FF/REW currently do nothing meaningful.
@@ -302,7 +303,8 @@ This confirms:
 **Single-task focus:**
 Treat playback, Play/Pause transport, launcher visibility, banner, session restore, LOGIN_REQUIRED, and empty local_debug signed-in UI as solved. The next task is physical-device validation of the real provider OAuth pairing flow added in Entry 017:
 - start the backend on LAN with real provider OAuth env vars, including `PROVIDER_AUTH_PUBLIC_BASE_URL=http://192.168.1.167:4000` and `PROVIDER_REDIRECT_URI=http://192.168.1.167:4000/v1/auth/callback`
-- rebuild/reinstall the APK
+- in a second shell with the same provider env, run `npm run preflight:firetv-provider-auth`
+- only after the preflight passes, rebuild/reinstall the APK with `-PapiBaseUrl=http://192.168.1.167:4000`
 - launch on Fire TV with VPN disabled / LAN confirmed
 - use the LOGIN_REQUIRED primary provider sign-in path
 - complete the browser provider callback
@@ -585,3 +587,49 @@ Expected on-device outcomes:
   2. Start backend from repo root with real provider env:
      `ENABLE_DEBUG_AUTH=false HOST=0.0.0.0 PORT=4000 PROVIDER_AUTH_PUBLIC_BASE_URL=http://192.168.1.167:4000 PROVIDER_REDIRECT_URI=http://192.168.1.167:4000/v1/auth/callback PROVIDER_CLIENT_ID=<real> PROVIDER_CLIENT_SECRET=<real> npm --workspace @soundcloud-private/api start`
   3. Rebuild/reinstall APK, launch the app, select `Start Provider Sign In`, open the displayed URL on a phone/laptop, complete provider authorization, and confirm the TV routes to Home with a non-local_debug authenticated session.
+
+### Entry 018
+- Status: implemented; local/sandbox and live LAN preflight runs completed; physical Fire TV provider validation still blocked by missing backend/env and ADB authorization.
+- Summary: Added a repo-root one-command Fire TV provider-auth preflight so the next on-device sign-in pass checks backend LAN URL, provider OAuth env, route/LAN reachability, and ADB before rebuild/install.
+- Changes:
+  - Added `scripts/firetv-provider-auth-preflight.mjs`.
+  - Added root npm script `preflight:firetv-provider-auth`.
+  - Updated `README.md`, `services/api/README.md`, and `apps/firetv-client/README.md` with the provider-auth preflight sequence.
+  - Updated this worklog's active issue and next-step handoff.
+- Command:
+  - `npm run preflight:firetv-provider-auth`
+- What the preflight checks:
+  - backend URL defaults to `http://192.168.1.167:4000` unless `FIRETV_BACKEND_URL` or `PROVIDER_AUTH_PUBLIC_BASE_URL` overrides it
+  - backend URL is a LAN URL assigned to this Mac
+  - `GET /health` responds over the LAN backend URL
+  - `PROVIDER_CLIENT_ID`, `PROVIDER_CLIENT_SECRET`, `PROVIDER_REDIRECT_URI`, and `PROVIDER_AUTH_PUBLIC_BASE_URL` are set
+  - `PROVIDER_AUTH_PUBLIC_BASE_URL` matches the backend LAN URL
+  - `PROVIDER_REDIRECT_URI` matches `<backend>/v1/auth/callback`
+  - Mac routing to `192.168.1.168`
+  - ICMP/TCP reachability to `192.168.1.168:5555`
+  - `adb connect 192.168.1.168:5555` and `adb devices`
+- Local verification:
+  - First sandbox run executed the command and proved script wiring, but LAN/socket operations were sandbox-blocked with `EPERM`.
+  - Escalated live run executed successfully and produced real environment results.
+- Live preflight result:
+  - Passed:
+    - backend URL `http://192.168.1.167:4000` is assigned to this Mac
+    - Mac route to Fire TV uses `interface: en1`
+    - Fire TV ping replied from `192.168.1.168`
+    - TCP connect to `192.168.1.168:5555` succeeded
+    - `adb` executable is available
+  - Failed:
+    - backend `/health` on `http://192.168.1.167:4000` returned `ECONNREFUSED` because the backend was not running
+    - provider OAuth env was missing from the shell
+    - `adb connect 192.168.1.168:5555` failed with `failed to authenticate to 192.168.1.168:5555`
+    - `adb devices` listed `192.168.1.168:5555	unauthorized`
+- Regressions: none; this is a script/docs/worklog-only change.
+- Remaining blocker: Fire TV LAN reachability is now present, but ADB still needs to be authorized on the Fire TV. Provider credentials also need to be exported and the backend needs to be running before the preflight can pass.
+- Exact next device step:
+  1. Accept/refresh the ADB debugging authorization prompt on the Fire TV so `adb devices` shows `192.168.1.168:5555	device` instead of `unauthorized`.
+  2. Start backend from repo root with real provider env:
+     `ENABLE_DEBUG_AUTH=false HOST=0.0.0.0 PORT=4000 PROVIDER_AUTH_PUBLIC_BASE_URL=http://192.168.1.167:4000 PROVIDER_REDIRECT_URI=http://192.168.1.167:4000/v1/auth/callback PROVIDER_CLIENT_ID=<real> PROVIDER_CLIENT_SECRET=<real> npm --workspace @soundcloud-private/api start`
+  3. In another shell with the same provider env, run `npm run preflight:firetv-provider-auth`.
+  4. Only if preflight passes, rebuild/install:
+     `cd apps/firetv-client && ANDROID_HOME=$HOME/Library/Android/sdk ./gradlew :app:assembleDebug -PapiBaseUrl=http://192.168.1.167:4000 && adb connect 192.168.1.168:5555 && adb install -r app/build/outputs/apk/debug/app-debug.apk`
+  5. Launch the app, select `Start Provider Sign In`, open the displayed URL on a phone/laptop, complete provider authorization, and confirm the TV routes to Home with a non-local_debug authenticated session.

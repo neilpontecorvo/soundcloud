@@ -51,21 +51,25 @@ The app is no longer blocked on playback/runtime fundamentals.
 
 Current remaining work is concentrated in these areas:
 
-1. **TV-first UI polish**
+1. **Provider-auth validation**
+   - validate the real provider OAuth pairing flow on the physical Fire TV
+   - confirm provider refresh/recovery against real credentials after backend restart
+
+2. **TV-first UI polish**
    - convert the main menu/navigation into the intended vertical TV layout
    - tighten focus styling consistency
    - improve 4K spacing/density
 
-2. **Navigation behavior fixes**
+3. **Navigation behavior fixes**
    - keep selection movement deterministic left/right across cards, playlists, and components
    - ensure the focus indicator moves between items rather than rails/cards visually shifting into a static selection state
    - continue validating playlist/component navigation paths
 
-3. **Transport validation**
+4. **Transport validation**
    - confirm `Next` / `Previous` behavior under real queue/list conditions
    - keep `Fast Forward` / `Rewind` unsupported unless a real seek/jump contract is intentionally added later
 
-4. **Cleanup**
+5. **Cleanup**
    - lint / manifest cleanup
    - deprecated API cleanup
    - low-risk resource/string cleanup
@@ -124,6 +128,36 @@ For physical Fire TV validation on the local network, the backend host has been 
 http://192.168.1.167:4000
 ```
 
+For the real provider-auth device pass, export the provider OAuth environment,
+start the backend on the LAN URL, then run the preflight before rebuilding or
+installing:
+
+```bash
+cd ~/soundcloud
+export PROVIDER_CLIENT_ID=<real>
+export PROVIDER_CLIENT_SECRET=<real>
+export PROVIDER_AUTH_PUBLIC_BASE_URL=http://192.168.1.167:4000
+export PROVIDER_REDIRECT_URI=http://192.168.1.167:4000/v1/auth/callback
+
+ENABLE_DEBUG_AUTH=false HOST=0.0.0.0 PORT=4000 npm --workspace @soundcloud-private/api start
+```
+
+In another shell with the same provider env:
+
+```bash
+cd ~/soundcloud
+export PROVIDER_CLIENT_ID=<real>
+export PROVIDER_CLIENT_SECRET=<real>
+export PROVIDER_AUTH_PUBLIC_BASE_URL=http://192.168.1.167:4000
+export PROVIDER_REDIRECT_URI=http://192.168.1.167:4000/v1/auth/callback
+npm run preflight:firetv-provider-auth
+```
+
+The preflight checks that the backend LAN URL belongs to this Mac, `/health`
+responds on that URL, provider OAuth env is present and URL-aligned, and
+`192.168.1.168:5555` is reachable through ADB. Do not rebuild/install until it
+passes.
+
 ### 2) Build the Fire TV Client
 
 ```bash
@@ -132,6 +166,13 @@ export ANDROID_HOME="$HOME/Library/Android/sdk"
 export JAVA_HOME="$([ -x /usr/libexec/java_home ] && /usr/libexec/java_home -v 17)"
 export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
 ./gradlew :app:assembleDebug
+```
+
+For the provider-auth pass, keep the APK pointed at the same preflighted LAN
+backend URL:
+
+```bash
+./gradlew :app:assembleDebug -PapiBaseUrl=http://192.168.1.167:4000
 ```
 
 ### 3) Install to Fire TV

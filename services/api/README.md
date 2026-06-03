@@ -28,6 +28,24 @@ PROVIDER_CLIENT_SECRET=...
 PROVIDER_REDIRECT_URI=...
 ```
 
+For Fire TV provider-auth pairing on the local LAN, also set
+`PROVIDER_AUTH_PUBLIC_BASE_URL` to the Mac backend URL and keep
+`PROVIDER_REDIRECT_URI` aligned with its callback path:
+
+```bash
+PROVIDER_AUTH_PUBLIC_BASE_URL=http://192.168.1.167:4000
+PROVIDER_REDIRECT_URI=http://192.168.1.167:4000/v1/auth/callback
+```
+
+Before rebuilding or installing the APK for the on-device sign-in pass, run:
+
+```bash
+npm run preflight:firetv-provider-auth
+```
+
+That command checks the backend LAN URL, `/health`, provider OAuth environment,
+Mac-to-Fire-TV route, `192.168.1.168:5555`, and `adb connect`.
+
 Optional provider settings:
 
 ```bash
