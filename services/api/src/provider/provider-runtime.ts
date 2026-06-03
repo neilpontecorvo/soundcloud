@@ -19,5 +19,5 @@ for (const record of providerTokenStore.list()) {
   if (record.tokens.source === 'local_debug' && !apiEnv.enableDebugAuth) {
     continue;
   }
-  restoreDeviceSession(record.session);
+  restoreDeviceSession(providerCredentialsService.restoreStoredSession(record));
 }

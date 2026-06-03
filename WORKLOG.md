@@ -734,3 +734,63 @@ Expected on-device outcomes:
      `PROVIDER_CLIENT_ID=<real> PROVIDER_CLIENT_SECRET=<real> PROVIDER_AUTH_PUBLIC_BASE_URL=http://192.168.1.167:4000 PROVIDER_REDIRECT_URI=http://192.168.1.167:4000/v1/auth/callback ENABLE_DEBUG_AUTH=false HOST=0.0.0.0 PORT=4000 npm --workspace @soundcloud-private/api start`
   2. In the same env, rerun `npm run preflight:firetv-provider-auth`.
   3. Start provider sign-in again on the TV, use the fresh displayed code, complete provider authorization, and confirm Home/Search/Library load provider-backed content.
+
+### Entry 022
+- Status: implemented and locally validated; physical provider callback still blocked by missing backend OAuth env.
+- Summary: Added server-side recovery for previously authenticated provider sessions that have refresh tokens. This addresses the "it previously worked, why authorize again?" path: an expired provider access token is now treated as recoverable on API startup, and a temporary missing-OAuth-env failure no longer permanently re-expires that stored provider session.
+- Changes:
+  - `services/api/src/provider/credentials-service.ts`: added `restoreStoredSession(...)` to revive expired provider sessions that still have a refresh token, giving them a short backend recovery window while preserving the old access-token expiry so the next content access still refreshes server-side.
+  - `services/api/src/provider/credentials-service.ts`: changed `refreshSession(...)` so `provider_not_configured` is propagated without rewriting the persisted provider session to `expired`.
+  - `services/api/src/provider/provider-runtime.ts`: routes provider token-store startup restoration through `restoreStoredSession(...)`.
+- Commands run:
+  - `npm run check:api`
+  - `npm --workspace @soundcloud-private/api run build`
+  - Direct module smoke: expired provider session with refresh token restores as `authenticated`, writes `authenticated` back to the temp session/token stores, gets a future backend `expiresAtIso`, and keeps `accessTokenExpiresAtIso` expired so refresh is still required before real provider content.
+  - Direct module smoke: missing provider OAuth env returns `provider_not_configured` during token access and leaves the temp provider session `authenticated` rather than re-expiring it.
+  - `adb shell uiautomator dump /sdcard/soundcloud-window.xml` confirmed the Fire TV is still foregrounded on `Sign In Required` with code `HLUZ-DV8B` and `START PROVIDER SIGN IN` focused.
+  - `curl -i 'http://127.0.0.1:4000/v1/auth/start?user_code=HLUZ-DV8B'` still returns `501 provider_not_configured` from the currently running backend process.
+- What passed:
+  - API typecheck passed.
+  - API build passed.
+  - Both isolated recovery smoke checks passed against rebuilt `dist` output.
+  - Fire TV launch/UI state remains correct and shows the latest code `HLUZ-DV8B`.
+- What failed / blocked:
+  - The running backend process is still `node dist/index.js` without `PROVIDER_CLIENT_ID`, `PROVIDER_CLIENT_SECRET`, `PROVIDER_REDIRECT_URI`, or `PROVIDER_AUTH_PUBLIC_BASE_URL`, so real provider authorization cannot complete yet.
+  - The new recovery code is built locally but will not affect the live `:4000` process until that backend is restarted from the rebuilt `dist`.
+- Exact next step:
+  1. Restart the backend from rebuilt `dist` with real provider env:
+     `PROVIDER_CLIENT_ID=<real> PROVIDER_CLIENT_SECRET=<real> PROVIDER_AUTH_PUBLIC_BASE_URL=http://192.168.1.167:4000 PROVIDER_REDIRECT_URI=http://192.168.1.167:4000/v1/auth/callback ENABLE_DEBUG_AUTH=false HOST=0.0.0.0 PORT=4000 npm --workspace @soundcloud-private/api start`
+  2. Rerun `npm run preflight:firetv-provider-auth`.
+  3. Use the fresh code on the TV and complete the provider callback. If the old provider refresh token is still valid, the app should no longer require a full account re-authorization after the backend restarts with env.
+
+### Entry 023
+- Status: launched current APK and validated the Fire TV HTTP auth address; provider redirect remains blocked by missing real OAuth client credentials.
+- Summary: Restarted the API from rebuilt `dist` on the Mac LAN address and reinstalled/relaunched the current Fire TV debug APK. The stale `HLUZ-DV8B` / `M9JL-7ETD` codes were no longer valid after backend restart/TTL expiry, but the relaunched app generated fresh code `6FVH-BEMC`.
+- Commands run:
+  - `HOST=0.0.0.0 PORT=4000 ENABLE_DEBUG_AUTH=false PROVIDER_AUTH_PUBLIC_BASE_URL=http://192.168.1.167:4000 PROVIDER_REDIRECT_URI=http://192.168.1.167:4000/v1/auth/callback npm --workspace @soundcloud-private/api start`
+  - `curl -s -i http://127.0.0.1:4000/health`
+  - `curl -s -i 'http://127.0.0.1:4000/v1/auth/start?user_code=HLUZ-DV8B'`
+  - `npm run preflight:firetv-provider-auth`
+  - `curl -s -i -X POST http://127.0.0.1:4000/v1/device/bootstrap -H 'Content-Type: application/json' -d '{"deviceName":"codex-smoke","appVersion":"test"}'`
+  - `curl -s -i 'http://127.0.0.1:4000/v1/auth/start?user_code=LJ2V-ZKD9'`
+  - `ANDROID_HOME=$HOME/Library/Android/sdk ./gradlew :app:assembleDebug -PapiBaseUrl=http://192.168.1.167:4000` from `apps/firetv-client`
+  - `adb install -r app/build/outputs/apk/debug/app-debug.apk` from `apps/firetv-client`
+  - `adb shell am force-stop com.neilpontecorvo.soundcloudfiretv`
+  - `adb shell am start -a android.intent.action.MAIN -c android.intent.category.LEANBACK_LAUNCHER -n com.neilpontecorvo.soundcloudfiretv/.app.MainActivity`
+  - `adb shell uiautomator dump /sdcard/soundcloud-window.xml`
+  - `curl -s -i 'http://127.0.0.1:4000/v1/auth/start?user_code=6FVH-BEMC'`
+- What passed:
+  - Backend health returned HTTP 200 on `127.0.0.1:4000` after relaunch.
+  - Direct backend bootstrap generated live code `LJ2V-ZKD9`; that URL reached `501 provider_not_configured`, proving the pairing store and `/v1/auth/start` path are working when the code is current.
+  - Android debug build completed successfully from `apps/firetv-client`.
+  - APK reinstall succeeded.
+  - Fire TV app relaunched and UI dump confirmed `Sign In Required` with current code `6FVH-BEMC` and URL `http://192.168.1.167:4000/v1/auth/start?user_code=6FVH-BEMC`.
+  - The current TV code `6FVH-BEMC` reached `501 provider_not_configured`, so the TV-displayed HTTP auth address is now backed by the running API process.
+- What failed / blocked:
+  - `HLUZ-DV8B` and `M9JL-7ETD` returned `404 Sign-in code expired` because awaiting-auth pairings are short-lived and not persisted across backend restart/TTL expiry.
+  - Preflight now passes LAN backend health, Fire TV route, ping, TCP 5555, ADB connect, and ADB device, but still fails shell env checks for `PROVIDER_CLIENT_ID`, `PROVIDER_CLIENT_SECRET`, `PROVIDER_REDIRECT_URI`, and `PROVIDER_AUTH_PUBLIC_BASE_URL`. The running backend was started with public base/callback env, but the preflight command still needs those env vars in its own shell.
+  - Real provider authorization cannot redirect until `PROVIDER_CLIENT_ID` and `PROVIDER_CLIENT_SECRET` are provided to the backend process.
+- Exact next step:
+  1. Restart the API with all real provider env in the same shell, including `PROVIDER_CLIENT_ID` and `PROVIDER_CLIENT_SECRET`.
+  2. Relaunch the app or use the current displayed fresh code before its 10-minute TTL expires.
+  3. Open the TV-displayed URL and complete the provider callback.

@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { invalidSession, providerRefreshFailed } from '../errors/api-error.js';
+import {
+  HttpApiError,
+  invalidSession,
+  providerRefreshFailed
+} from '../errors/api-error.js';
 import {
   DeviceSession,
   updateDeviceSession
@@ -23,6 +27,28 @@ export class ProviderCredentialsService {
       tokens: storedTokens(tokenSet)
     });
     return updateDeviceSession(session.sessionId, nextSession) ?? nextSession;
+  }
+
+  restoreStoredSession(record: StoredProviderSession): DeviceSession {
+    if (
+      record.tokens.source === 'provider'
+      && record.tokens.refreshToken
+      && record.session.status === 'expired'
+    ) {
+      const expiresAtIso = new Date(Date.now() + RECOVERED_SESSION_TTL_MS).toISOString();
+      const recoverableSession: DeviceSession = {
+        ...record.session,
+        status: 'authenticated',
+        expiresAtIso
+      };
+      this.tokenStore.save({
+        ...record,
+        session: recoverableSession
+      });
+      return recoverableSession;
+    }
+
+    return record.session;
   }
 
   async refreshSession(session: DeviceSession): Promise<DeviceSession> {
@@ -53,6 +79,10 @@ export class ProviderCredentialsService {
       };
       return this.storeExchange(session, nextTokenSet);
     } catch (error) {
+      if (error instanceof HttpApiError && error.error === 'provider_not_configured') {
+        throw error;
+      }
+
       const expired = updateDeviceSession(session.sessionId, {
         status: 'expired'
       });
@@ -170,6 +200,7 @@ const storedTokens = (tokenSet: ProviderTokenSet) => ({
 });
 
 const DEBUG_SESSION_TTL_MS = 60 * 60 * 1000;
+const RECOVERED_SESSION_TTL_MS = 10 * 60 * 1000;
 const shouldRefresh = (record: StoredProviderSession): boolean => {
   const expiresAtIso = record.tokens.accessTokenExpiresAtIso;
   if (!expiresAtIso) return false;
