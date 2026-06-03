@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Private Cloud TV</string>
+    <item name="login_primary_action" type="id" />
 </resources>

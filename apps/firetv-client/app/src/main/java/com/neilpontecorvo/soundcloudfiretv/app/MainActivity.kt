@@ -1576,12 +1576,8 @@ class MainActivity : AppCompatActivity(),
         root.addView(bodyText)
 
         val signInButton = Button(this).apply {
-            id = View.generateViewId()
-            text = if (state.phase == AuthSessionPhase.AWAITING_AUTH) {
-                "Check Sign-In Status"
-            } else {
-                "Start Provider Sign In"
-            }
+            id = R.id.login_primary_action
+            text = loginPrimaryActionLabel(state)
             setTextColor(Color.WHITE)
             setBackgroundResource(R.drawable.tv_focusable_background)
             setPadding(dp(24), 0, dp(24), 0)
@@ -1645,6 +1641,14 @@ class MainActivity : AppCompatActivity(),
     private fun refreshLoginRequiredBody(state: AuthSessionState) {
         if (currentScreen != AppScreen.LOGIN_REQUIRED) return
         contentFrame.findViewById<TextView>(R.id.panelBody)?.text = loginRequiredMessage(state)
+        contentFrame.findViewById<Button>(R.id.login_primary_action)?.text = loginPrimaryActionLabel(state)
+    }
+
+    private fun loginPrimaryActionLabel(state: AuthSessionState): String = when (state.phase) {
+        AuthSessionPhase.AWAITING_AUTH -> "Check Sign-In Status"
+        AuthSessionPhase.BOOTSTRAPPING,
+        AuthSessionPhase.REFRESHING -> "Checking..."
+        else -> "Start Provider Sign In"
     }
 
     private fun loginRequiredMessage(state: AuthSessionState): String = when (state.phase) {

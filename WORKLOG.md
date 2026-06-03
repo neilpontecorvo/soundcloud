@@ -794,3 +794,27 @@ Expected on-device outcomes:
   1. Restart the API with all real provider env in the same shell, including `PROVIDER_CLIENT_ID` and `PROVIDER_CLIENT_SECRET`.
   2. Relaunch the app or use the current displayed fresh code before its 10-minute TTL expires.
   3. Open the TV-displayed URL and complete the provider callback.
+
+### Entry 024
+- Status: implemented, installed, and physically validated on Fire TV; provider redirect remains blocked by missing real OAuth credentials.
+- Summary: Fixed stale login-screen primary action text. The Fire TV login body was already refreshing as auth state changed, but the primary button was created with a generated id and did not refresh after the state moved into `awaiting_auth`. The button now has a stable resource id and updates with the login body, so awaiting-auth displays `CHECK SIGN-IN STATUS` instead of stale `START PROVIDER SIGN IN`.
+- Changes:
+  - `apps/firetv-client/app/src/main/res/values/strings.xml`: added stable id resource `login_primary_action`.
+  - `apps/firetv-client/app/src/main/java/com/neilpontecorvo/soundcloudfiretv/app/MainActivity.kt`: uses `R.id.login_primary_action`, centralizes login primary action label selection, and refreshes the button text alongside `panelBody`.
+- Commands run:
+  - `git diff --check`
+  - `ANDROID_HOME=$HOME/Library/Android/sdk ./gradlew :app:assembleDebug -PapiBaseUrl=http://192.168.1.167:4000`
+  - `HOST=0.0.0.0 PORT=4000 ENABLE_DEBUG_AUTH=false PROVIDER_AUTH_PUBLIC_BASE_URL=http://192.168.1.167:4000 PROVIDER_REDIRECT_URI=http://192.168.1.167:4000/v1/auth/callback npm --workspace @soundcloud-private/api start`
+  - `adb install -r app/build/outputs/apk/debug/app-debug.apk`
+  - `adb shell am force-stop com.neilpontecorvo.soundcloudfiretv`
+  - `adb shell am start -a android.intent.action.MAIN -c android.intent.category.LEANBACK_LAUNCHER -n com.neilpontecorvo.soundcloudfiretv/.app.MainActivity`
+  - `adb shell uiautomator dump /sdcard/soundcloud-window.xml`
+  - `adb exec-out cat /sdcard/soundcloud-window.xml`
+  - `curl -s -i 'http://127.0.0.1:4000/v1/auth/start?user_code=YHCJ-UQ2D'`
+- What passed:
+  - Android debug build passed.
+  - APK reinstall succeeded.
+  - Fire TV UI dump showed `CHECK SIGN-IN STATUS` with resource id `com.neilpontecorvo.soundcloudfiretv:id/login_primary_action` while displaying code `YHCJ-UQ2D`.
+  - The TV-generated code `YHCJ-UQ2D` reached the running backend and returned `501 provider_not_configured`, proving the code was live and the remaining stop is OAuth configuration.
+- What failed / blocked:
+  - Real provider redirect still cannot complete until the backend is restarted with real `PROVIDER_CLIENT_ID` and `PROVIDER_CLIENT_SECRET`.
