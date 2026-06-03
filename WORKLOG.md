@@ -168,8 +168,9 @@ This confirms:
    - Backend pairing endpoints and Fire TV LOGIN_REQUIRED primary sign-in UI are implemented.
    - Repo now has a one-command provider-auth preflight: `npm run preflight:firetv-provider-auth`.
    - API typecheck/build, Android build, and local pairing-route smoke checks pass.
-   - Latest preflight reaches the Fire TV over LAN/TCP, but ADB is not authorized yet: `adb connect 192.168.1.168:5555` returns `failed to authenticate` and `adb devices` lists `192.168.1.168:5555	unauthorized`.
-   - A real provider sign-in still needs provider credentials configured on the backend, backend `/health` running on the LAN URL, ADB authorization on the Fire TV, and an on-device pairing/callback validation pass.
+   - Latest preflight reaches the Fire TV over LAN/TCP and ADB is authorized: `adb devices` lists `192.168.1.168:5555	device`.
+   - Backend `/health` is reachable on `http://192.168.1.167:4000`, and the rebuilt APK launches to the provider pairing screen on the Fire TV.
+   - A real provider sign-in still needs provider credentials configured in the running backend process and an on-device pairing/callback validation pass.
 
 2. **Fast Forward / Rewind unsupported by design**
    - FF/REW currently do nothing meaningful.
@@ -362,7 +363,7 @@ When resuming work:
 - No major blocker; only validation/polish tasks remain
 
 ### Exact next step
-- Validate Next/Previous behavior on device and continue cleanup/polish tasks.
+- Export real provider OAuth env, restart the backend, rerun `npm run preflight:firetv-provider-auth`, then complete the displayed Fire TV provider pairing URL/code.
 
 ---
 
@@ -698,3 +699,38 @@ Expected on-device outcomes:
      `PROVIDER_CLIENT_ID=<real> PROVIDER_CLIENT_SECRET=<real> PROVIDER_AUTH_PUBLIC_BASE_URL=http://192.168.1.167:4000 PROVIDER_REDIRECT_URI=http://192.168.1.167:4000/v1/auth/callback ENABLE_DEBUG_AUTH=false HOST=0.0.0.0 PORT=4000 npm --workspace @soundcloud-private/api start`
   2. In the same env, rerun `npm run preflight:firetv-provider-auth`.
   3. Use the fresh code displayed on the TV at `http://192.168.1.167:4000/v1/auth/start?user_code=<code>` and complete provider authorization.
+
+### Entry 021
+- Status: validation pass completed; fresh APK launch confirmed; provider sign-in remains blocked by missing backend OAuth env.
+- Summary: Continued the provider-auth launch path with the new Fire TV pairing code `HLUZ-DV8B`. The app is foregrounded on the Fire TV, the displayed code matches the UI hierarchy, and the backend recognizes the route but cannot redirect to the provider because OAuth credentials are not configured in the running API process.
+- Commands run:
+  - `npm run check:api`
+  - `npm --workspace @soundcloud-private/api run build`
+  - `./gradlew :app:assembleDebug -PapiBaseUrl=http://192.168.1.167:4000`
+  - `npm run preflight:firetv-provider-auth`
+  - `adb connect 192.168.1.168:5555`
+  - `adb install -r app/build/outputs/apk/debug/app-debug.apk`
+  - `adb shell am start -a android.intent.action.MAIN -c android.intent.category.LEANBACK_LAUNCHER -n com.neilpontecorvo.soundcloudfiretv/.app.MainActivity`
+  - `adb shell dumpsys activity activities`
+  - `adb shell uiautomator dump /sdcard/soundcloud-window.xml`
+  - `curl -i 'http://127.0.0.1:4000/v1/auth/start?user_code=HLUZ-DV8B'`
+- What passed:
+  - API typecheck passed.
+  - API build passed.
+  - Android debug build passed after rerunning outside the sandbox because Gradle's local file-lock socket was sandbox-blocked.
+  - Backend `/health` over the LAN URL passed in preflight.
+  - Fire TV route, ping, TCP 5555, ADB connect, and ADB device checks all passed.
+  - `adb devices` lists `192.168.1.168:5555	device`.
+  - APK reinstall succeeded.
+  - App launch succeeded; `dumpsys activity` shows `com.neilpontecorvo.soundcloudfiretv/.app.MainActivity` as the resumed/focused activity.
+  - UI hierarchy shows `Sign In Required`, the displayed URL `http://192.168.1.167:4000/v1/auth/start?user_code=HLUZ-DV8B`, code `HLUZ-DV8B`, and `START PROVIDER SIGN IN` focused.
+- What failed / blocked:
+  - `curl -i 'http://127.0.0.1:4000/v1/auth/start?user_code=HLUZ-DV8B'` returned `501 provider_not_configured` with message `Provider OAuth requires PROVIDER_CLIENT_ID, PROVIDER_CLIENT_SECRET, and PROVIDER_REDIRECT_URI.`
+  - `npm run preflight:firetv-provider-auth` fails only provider-env checks: `PROVIDER_CLIENT_ID`, `PROVIDER_CLIENT_SECRET`, `PROVIDER_REDIRECT_URI`, and `PROVIDER_AUTH_PUBLIC_BASE_URL` are missing from this shell.
+  - The in-app Browser surface requested through `@Browser` was not available in this Codex session, so the pairing URL could not be visually driven there; the direct HTTP result above is the authoritative backend outcome.
+- Regressions: none observed in build/install/launch. No source code was changed in this entry.
+- Exact next step:
+  1. Restart the backend with real provider env:
+     `PROVIDER_CLIENT_ID=<real> PROVIDER_CLIENT_SECRET=<real> PROVIDER_AUTH_PUBLIC_BASE_URL=http://192.168.1.167:4000 PROVIDER_REDIRECT_URI=http://192.168.1.167:4000/v1/auth/callback ENABLE_DEBUG_AUTH=false HOST=0.0.0.0 PORT=4000 npm --workspace @soundcloud-private/api start`
+  2. In the same env, rerun `npm run preflight:firetv-provider-auth`.
+  3. Start provider sign-in again on the TV, use the fresh displayed code, complete provider authorization, and confirm Home/Search/Library load provider-backed content.
