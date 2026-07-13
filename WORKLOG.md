@@ -164,7 +164,7 @@ This confirms:
 - launcher visibility and banner packaging are resolved
 
 ### Current active issues
-1. **Real provider OAuth/device-pairing requires physical-device validation**
+1. **Real provider OAuth/device-pairing is paused**
    - Backend pairing endpoints and Fire TV LOGIN_REQUIRED primary sign-in UI are implemented.
    - Repo now has a one-command provider-auth preflight: `npm run preflight:firetv-provider-auth`.
    - API typecheck/build, Android build, and local pairing-route smoke checks pass.
@@ -302,16 +302,13 @@ This confirms:
 
 ## 11. Current Next Step
 **Single-task focus:**
-Treat playback, Play/Pause transport, launcher visibility, banner, session restore, LOGIN_REQUIRED, and empty local_debug signed-in UI as solved. The next task is physical-device validation of the real provider OAuth pairing flow added in Entry 017:
-- start the backend on LAN with real provider OAuth env vars, including `PROVIDER_AUTH_PUBLIC_BASE_URL=http://192.168.1.167:4000` and `PROVIDER_REDIRECT_URI=http://192.168.1.167:4000/v1/auth/callback`
-- in a second shell with the same provider env, run `npm run preflight:firetv-provider-auth`
-- only after the preflight passes, rebuild/reinstall the APK with `-PapiBaseUrl=http://192.168.1.167:4000`
-- launch on Fire TV with VPN disabled / LAN confirmed
-- use the LOGIN_REQUIRED primary provider sign-in path
-- complete the browser provider callback
-- confirm relaunch restores the real provider session and Home/Library/Search use provider-backed content
+Keep Sites migration and real-provider OAuth configuration paused. The local-debug Fire TV experience is the active verified path:
+- run the API with `ENABLE_DEBUG_AUTH=true HOST=0.0.0.0 PORT=4000`
+- local-debug Home, Library, and Search return their fixtures through the normal content endpoints
+- selecting `Local Debug Track` plays Flickermood by Forss
+- session restoration returns to populated Home
 
-Do not reopen playback-runtime debugging unless playback itself stops working again.
+Do not begin Sites migration, production OAuth configuration, UI polish, Next/Previous, or FF/REW work without a new scoped task.
 
 ---
 
@@ -865,3 +862,95 @@ Expected on-device outcomes:
   1. Restart the backend with the real `PROVIDER_CLIENT_ID` and `PROVIDER_CLIENT_SECRET` in addition to the already validated public base/callback env.
   2. Rerun the same preflight command with those two env vars present.
   3. Relaunch the TV app, use the fresh displayed code before the 10-minute TTL expires, and complete provider authorization in the browser.
+
+### Entry 027
+- Status: debug build/install/launch and local-debug authentication validation completed on physical Fire TV; one Mac self-LAN health-check anomaly remains documented below.
+- Summary: Rebuilt the current working tree with an explicitly pinned Java 17 runtime and the configured Android SDK, reinstalled the resulting debug APK on the authorized Fire TV, launched `com.neilpontecorvo.soundcloudfiretv/.app.MainActivity`, recovered an unauthenticated session through the existing local debug flow, and verified that a force-stop/relaunch restores directly to the signed-in Home state.
+- Start SHA: `7b9775e`.
+- Device: `192.168.1.168:5555`, model `AFTKM` / product `karat`.
+- Commands run:
+  - `curl http://192.168.1.167:4000/health` with explicit connect/total timeouts.
+  - `curl http://127.0.0.1:4000/health`.
+  - `$HOME/Library/Android/sdk/platform-tools/adb connect 192.168.1.168:5555` and `adb devices -l`.
+  - Java runtime discovery via `java -XshowSettings:properties -version`; qualifying build pinned to `/usr/local/Cellar/openjdk@17/17.0.18/libexec/openjdk.jdk/Contents/Home`.
+  - `./gradlew --no-daemon -Dorg.gradle.java.home=<JDK17_HOME> :app:assembleDebug -PapiBaseUrl=http://192.168.1.167:4000` with `ANDROID_HOME=$HOME/Library/Android/sdk`.
+  - `adb install -r apps/firetv-client/app/build/outputs/apk/debug/app-debug.apk`.
+  - `adb shell am start -n com.neilpontecorvo.soundcloudfiretv/.app.MainActivity`.
+  - Deterministic D-pad selection of the existing `USE DEBUG FALLBACK` flow.
+  - Focused log captures only: `adb logcat -d -v time -s MainActivity WebPlayerHostController HardenedWebViewClient PlayerBridge`.
+  - Final `force-stop` + relaunch and UI-hierarchy verification.
+- What passed:
+  - Local API `/health` returned HTTP 200 with `{"service":"soundcloud-private-api","status":"ok",...}` on `127.0.0.1:4000`; the Node process was listening on `*:4000`.
+  - ADB connected without an authorization prompt; `adb devices -l` listed `192.168.1.168:5555 device`.
+  - The qualifying Gradle build used OpenJDK `17.0.18` for both the launcher and single-use daemon and ended `BUILD SUCCESSFUL`.
+  - APK installation returned `Success`; installed artifact SHA-256 was `1b82c85ca73d239369edf3fb7779f3fa95961571ba9c5ffbddb308ecef5c49d3`.
+  - MainActivity launched and was the resumed activity.
+  - Initial launch showed the expected unauthenticated screen. The existing debug fallback first recovered bootstrap and obtained a live pairing/session state, then authenticated successfully on the second selection.
+  - After debug authentication, the app reached `ANELO on SoundCloud` Home with the expected local-debug signed-in empty state, `No content available`.
+  - A force-stop/relaunch returned directly to that signed-in Home state, proving Fire TV-to-backend connectivity and persisted-session restoration.
+  - App-specific log captures contained no crash or error from the allowed tags. Player/WebView tags were quiet because playback was not opened in this scoped task.
+- What did not pass / observation:
+  - Requests from the Mac to its own LAN address `http://192.168.1.167:4000/health` completed the TCP handshake but timed out without HTTP response bytes. This differs from the localhost HTTP 200 result. It did not block the physical Fire TV: the app successfully bootstrapped, debug-authenticated, loaded signed-in Home, and restored its session through the same LAN API base URL.
+- Source changes: none made in this entry. Existing uncommitted Android/API/config changes were present before the task and were preserved without modification.
+- Commit: none created because this entry made no source changes; `WORKLOG.md` remains an intentional worklog-only update in the dirty working tree.
+
+### Entry 028
+- Status: corrective live-state verification completed after the user reported that the app was not running.
+- Summary: The earlier `mResumedActivity` evidence was insufficient by itself. A fresh `am start -W` cold launch initially produced a black Fire TV framebuffer even though Android returned `Status: ok` and marked MainActivity resumed. After approximately 10–15 seconds, the actual framebuffer and UI hierarchy rendered the signed-in Home screen with `No content available`.
+- Commands run:
+  - `adb connect 192.168.1.168:5555` and `adb devices -l`.
+  - `adb shell pidof com.neilpontecorvo.soundcloudfiretv`.
+  - Focused activity/window and display-power checks.
+  - `adb shell am force-stop com.neilpontecorvo.soundcloudfiretv`.
+  - `adb shell am start -W -n com.neilpontecorvo.soundcloudfiretv/.app.MainActivity`.
+  - Fire TV framebuffer captures plus `uiautomator` hierarchy verification.
+  - App-specific logs only: `MainActivity`, `WebPlayerHostController`, `HardenedWebViewClient`, and `PlayerBridge`.
+- What passed:
+  - ADB remained authorized as `device`.
+  - Cold launch returned `Status: ok`, `LaunchState: COLD`, and completed in 1.985 seconds at the activity-manager level.
+  - The app process remained alive and MainActivity remained the resumed activity.
+  - The display was awake and powered on.
+  - After the startup delay, framebuffer and hierarchy both showed `ANELO on SoundCloud`, Home focused, and the expected local-debug empty state `No content available`.
+  - No crash/error was emitted by the four allowed app tags.
+- Corrected interpretation:
+  - The app is currently running and visible, but a cold launch can present a transient black screen before content is rendered. The final `No content available` screen is the intentionally empty local-debug feed behavior from Entry 015, not evidence that the process failed to launch.
+  - If the intended meaning of "not running" is that playable content is absent, that is a separate content/auth task: local-debug Home is intentionally empty, while real provider content still requires the provider-auth path.
+- Source changes: none.
+- Commit: none created because there were no source changes.
+
+### Entry 029
+- Status: completed; focused tests, required builds, and physical Fire TV playback validation passed.
+- Summary: Restored the Entry 014 local-debug experience through the normal feed/library/search endpoints without removing the Entry 015 explicit debug routes or changing later provider-pairing, session-restoration, WebView hardening, launcher/banner, or transport implementations.
+- Scoped changes:
+  - `services/api/src/content/catalog-provider.ts`: authenticated local-debug sessions now receive `localDebugFeed()`, `localDebugLibrary()`, and `localDebugSearch()` from the normal content provider when the credentials service confirms local-debug mode is enabled.
+  - `services/api/test/catalog-provider.test.ts`: added focused coverage for enabled local-debug fixtures, disabled persisted local-debug denial, and the unchanged real-provider adapter path.
+  - `services/api/package.json`: added the API test command.
+  - Kept `/v1/debug/content/feed`, `/v1/debug/content/library`, and `/v1/debug/content/search` unchanged and available only behind their existing debug/session guards.
+- Security behavior verified:
+  - `ProviderCredentialsService.isLocalDebugSession()` returns true only when local-debug credentials are enabled and the persisted token source is `local_debug`.
+  - With debug credentials disabled, a persisted local-debug session cannot fall through to fixtures; normal feed/library/search calls reject it as `invalid_session`.
+  - Real-provider sessions still obtain their provider access token and call the configured provider adapter.
+- Automated validation:
+  - `git diff --check` passed.
+  - `npm --workspace @soundcloud-private/api test` passed all 3 tests.
+  - `npm run check:api` passed.
+  - `npm --workspace @soundcloud-private/api run build` passed.
+  - Android `:app:assembleDebug -PapiBaseUrl=http://192.168.1.167:4000` passed with OpenJDK 17.0.18 and `$HOME/Library/Android/sdk`.
+- Runtime setup:
+  - Restarted the backend with `ENABLE_DEBUG_AUTH=true HOST=0.0.0.0 PORT=4000 npm --workspace @soundcloud-private/api start`.
+  - Backend `/health` returned HTTP 200 on localhost.
+  - ADB listed `192.168.1.168:5555 device` (AFTKM).
+  - Reinstalled the rebuilt APK with `adb install -r`, cleared app data for a fresh auth pass, and launched MainActivity.
+- Physical Fire TV results:
+  1. Local debug authentication succeeded through the existing debug fallback; Settings showed an authenticated session with backend `http://192.168.1.167:4000`.
+  2. Home rendered `Latest`, `Local Debug Track`, and `Local Debug Playlist`.
+  3. Library rendered `Local Debug Session` with both fixtures.
+  4. Search for `local` rendered both fixtures. The first device request reported one transient read timeout; the rebuilt API returned the correct search response directly, and the on-device retry succeeded.
+  5. Selecting `Local Debug Track` opened Player and reached `widget_event_fired=ready`, `debug_play_invoked=true`, and `widget_event_fired=play`.
+  6. Player reported `{"hasSound":true,"id":"293","title":"Flickermood","user":"Forss"}` and `widget_is_paused_after_debug_play=false`.
+  7. Audible playback was confirmed by the user at the physical TV.
+  8. Global MEDIA_PLAY_PAUSE produced Activity-level `Transport dispatch: command=toggle`, widget `pause`, then a second toggle and widget `play`.
+  9. Force-stop/relaunch restored the authenticated session directly to populated Home with both debug fixtures.
+- Logs: captured only `MainActivity`, `WebPlayerHostController`, `HardenedWebViewClient`, and `PlayerBridge`.
+- Regressions observed: none in provider routing, pairing UI, LOGIN_REQUIRED, session restoration, hardened controlled WebView, launcher/banner, or global Play/Pause.
+- Scope held: no Sites migration, production provider OAuth configuration, UI polish, Next/Previous, or FF/REW work was performed.

@@ -51,12 +51,7 @@ export class ProviderCatalogProvider implements CatalogProvider {
   ) {}
 
   async getFeed(session: DeviceSession): Promise<FeedPayload> {
-    // Local-debug sessions are not real provider-authenticated users, so the
-    // default signed-in UI must not silently render debug rails as if they
-    // were real personalized content. The dev-only `GET /v1/debug/content/feed`
-    // route still returns the debug items for explicit playback regression
-    // testing.
-    if (this.credentials.isLocalDebugSession(session)) return emptyFeed();
+    if (this.credentials.isLocalDebugSession(session)) return localDebugFeed();
 
     const accessToken = await this.credentials.getAccessToken(session);
     const json = await this.providerGet(this.config.feedPath, accessToken);
@@ -67,7 +62,7 @@ export class ProviderCatalogProvider implements CatalogProvider {
   }
 
   async search(query: string, session: DeviceSession): Promise<SearchPayload> {
-    if (this.credentials.isLocalDebugSession(session)) return emptySearch(query);
+    if (this.credentials.isLocalDebugSession(session)) return localDebugSearch(query);
 
     const accessToken = await this.credentials.getAccessToken(session);
     const params = new URLSearchParams();
@@ -83,7 +78,7 @@ export class ProviderCatalogProvider implements CatalogProvider {
   }
 
   async getLibrary(session: DeviceSession): Promise<LibraryPayload> {
-    if (this.credentials.isLocalDebugSession(session)) return emptyLibrary();
+    if (this.credentials.isLocalDebugSession(session)) return localDebugLibrary();
 
     const accessToken = await this.credentials.getAccessToken(session);
     const [tracks, playlists] = await Promise.all([
@@ -231,25 +226,10 @@ const isRecord = (value: unknown): value is Record<string, unknown> => (
   typeof value === 'object' && value !== null && !Array.isArray(value)
 );
 
-const emptyFeed = (): FeedPayload => ({
-  generatedAtIso: new Date().toISOString(),
-  items: []
-});
-
-const emptySearch = (query: string): SearchPayload => ({
-  generatedAtIso: new Date().toISOString(),
-  query: query.trim(),
-  items: []
-});
-
-const emptyLibrary = (): LibraryPayload => ({
-  generatedAtIso: new Date().toISOString(),
-  sections: []
-});
-
-// Debug rails are retained for explicit dev-only fallback use (e.g. the
-// `/v1/debug/content/*` routes), but are no longer returned from the normal
-// content endpoints. See also: Entry 015 in WORKLOG.md.
+// These fixtures are returned from normal content endpoints only when the
+// credentials service confirms both an authenticated local_debug token source
+// and that local-debug credentials are enabled for this runtime. The explicit
+// `/v1/debug/content/*` routes continue to reuse the same fixtures.
 export const localDebugItems: MediaCard[] = [
   {
     id: 'local-debug-track',
