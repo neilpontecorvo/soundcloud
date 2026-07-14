@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#050505"
+    android:background="#030303"
     android:paddingStart="32dp"
     android:paddingEnd="32dp"
     android:paddingTop="24dp"
@@ -25,9 +25,9 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:textColor="#FFFFFF"
-            android:textSize="22sp"
+            android:textSize="24sp"
             android:textStyle="bold"
-            android:text="NEILBEATS PLAYER"
+            android:text="ANELO ON SOUNDCLOUD"
             android:letterSpacing="0.02" />
 
         <!-- Navigation bar -->
@@ -36,7 +36,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:background="#0A0A0A"
+            android:background="#111111"
             android:padding="4dp">
 
             <Button
@@ -72,6 +72,6 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:background="#050505" />
+        android:background="#030303" />
 
 </LinearLayout>

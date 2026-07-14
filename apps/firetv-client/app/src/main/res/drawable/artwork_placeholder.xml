@@ -3,12 +3,12 @@
     <!-- Base gradient background -->
     <item>
         <shape android:shape="rectangle">
-            <corners android:radius="8dp" />
+            <corners android:radius="6dp" />
             <gradient
                 android:angle="135"
-                android:startColor="#1A1A1A"
-                android:centerColor="#252525"
-                android:endColor="#1A1A1A"
+                android:startColor="#171717"
+                android:centerColor="#242424"
+                android:endColor="#0A0A0A"
                 android:type="linear" />
         </shape>
     </item>

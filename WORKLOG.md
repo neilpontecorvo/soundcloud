@@ -954,3 +954,77 @@ Expected on-device outcomes:
 - Logs: captured only `MainActivity`, `WebPlayerHostController`, `HardenedWebViewClient`, and `PlayerBridge`.
 - Regressions observed: none in provider routing, pairing UI, LOGIN_REQUIRED, session restoration, hardened controlled WebView, launcher/banner, or global Play/Pause.
 - Scope held: no Sites migration, production provider OAuth configuration, UI polish, Next/Previous, or FF/REW work was performed.
+
+### Entry 030
+- Status: implemented, built, installed, and OS-level behavior validated; timed user observation pending.
+- Summary: Prevented Fire TV ambient/screensaver activation during active playback by tying `FLAG_KEEP_SCREEN_ON` to the existing native playback-state bridge.
+- Scoped change:
+  - `MainActivity.kt` requests `FLAG_KEEP_SCREEN_ON` only while Player reports active playback with no error.
+  - The flag is cleared on pause and when the Player/WebView host is released; no wake-lock permission or WebView/playback architecture change was added.
+- Automated/device validation:
+  - `git diff --check` passed.
+  - Android `:app:assembleDebug -PapiBaseUrl=http://192.168.1.167:4000` passed with Java 17 and `$HOME/Library/Android/sdk`.
+  - Rebuilt APK installation returned `Success`; MainActivity cold-launched and restored the authenticated populated Home.
+  - Selecting the focused provider track reached widget `ready` and `play`.
+  - On widget `play`, MainActivity logged `keepScreenOn=true` and Fire OS reported `KEEP_SCREEN_ON` on the app window.
+  - On MEDIA_PLAY_PAUSE, widget `pause` logged `keepScreenOn=false` and the app window no longer contained `KEEP_SCREEN_ON`; resuming playback restored both the widget `play` event and the window flag.
+  - Fire TV settings reported `screen_off_timeout=900000` (15 minutes) and `sleep_timeout=1200000` (20 minutes).
+- Logs: captured only `MainActivity`, `WebPlayerHostController`, `HardenedWebViewClient`, and `PlayerBridge`.
+- Pending validation: user is leaving playback active beyond the prior screensaver interval to confirm the screen remains on. Commit is intentionally deferred until that physical observation is reported.
+- Existing unrelated dirty-tree changes were preserved and are not part of this scoped fix.
+
+### Entry 031
+- Status: Phase 0 provider-configuration checkpoint completed; registered-callback dashboard comparison pending after Codex restart.
+- Scope: Executed only the project-unique Phase 0 checks requested by the user. Existing debug-authentication, APK-build, and physical playback evidence was not redundantly repeated.
+- Baseline: branch `main`, start commit `2a15c11f7c91362c1333892d4307d9312ed3e138`.
+- Secret handling:
+  - Used the existing ignored `.env.firetv.local` configuration without copying, modifying, printing, or committing any provider values.
+  - No provider credential, access token, refresh token, or redirect URI value was written to this worklog.
+- Runtime env verification:
+  - `PROVIDER_CLIENT_ID`: defined.
+  - `PROVIDER_CLIENT_SECRET`: defined.
+  - `PROVIDER_REDIRECT_URI`: defined.
+  - `npm run start:firetv-api` sourced the existing local env file, built the API, and delegated to `npm --workspace @soundcloud-private/api start`.
+  - The workspace API process started successfully and its live `/v1/auth/start` path generated a provider authorization redirect, proving the running process received all three required provider variables.
+- Provider callback verification:
+  - SoundCloud's authorization endpoint returned HTTP 200 for the live authorization request and did not report an invalid client or redirect-URI mismatch.
+  - A strict read-only comparison against the callback URI shown in the authenticated SoundCloud application dashboard is still pending because the available browser session was not authenticated and Codex must be restarted for full screen-recording permission.
+- Validation:
+  - API TypeScript build passed before launch.
+  - Live API bootstrap returned the expected success status.
+  - No APK/device/playback loop was rerun because the user explicitly limited this Phase 0 pass to checks that are new or unique to the project.
+- Commit: deferred until the pending dashboard comparison is completed; pre-existing unrelated dirty-tree changes remain preserved.
+
+### Entry 032
+- Status: repository handoff review and validation completed; reviewed changes prepared for commit and push to `origin/main`.
+- Repository: `https://github.com/neilpontecorvo/soundcloud.git`.
+- Branch/baseline:
+  - Branch: `main`.
+  - Local start commit: `2a15c11f7c91362c1333892d4307d9312ed3e138`.
+  - After `git fetch --prune origin`, divergence was zero origin-only commits and one local-only commit.
+  - No unexpected remote commits or conflicts were present.
+- Reviewed handoff scope:
+  - Preserved the previously unpushed local-debug content restoration commit and its API tests.
+  - Preserved the local Fire TV API launcher, ignored env template, and provider-auth preflight script.
+  - Preserved provider artist-home resolution and grouped Top 5, Playlists, Albums, and Tracks feed sections.
+  - Preserved Android feed-section parsing, artwork propagation/loading, TV card/focus layout updates, player artwork/waveform layout, and the playback-only screen-wake request.
+  - Preserved the existing `AGENTS.md`, documentation, resources, and worklog updates after reviewing their diffs.
+  - No WebView hardening, controlled-host restrictions, allowlists, SSL behavior, or token boundaries were weakened.
+- Secret handling:
+  - `.env`, `.env.*`, server-side token storage, and session storage paths are ignored.
+  - The real local env file remained ignored and was not staged or committed.
+  - No sensitive-looking filenames are tracked.
+  - Targeted credential-pattern scanning and Gitleaks both passed across the complete push delta, including the prior local commit and the reviewed untracked files.
+- Validation:
+  - `git diff --check` passed.
+  - `bash -n scripts/start-firetv-api.sh` passed.
+  - `node --check scripts/firetv-provider-auth-preflight.mjs` passed.
+  - `npm --workspace @soundcloud-private/api test` passed all 3 tests.
+  - `npm run check:api` passed.
+  - `npm --workspace @soundcloud-private/api run build` passed.
+  - Android `:app:assembleDebug` passed with pinned OpenJDK 17.0.18 and the configured Android SDK.
+  - The existing deprecated `saveFormData` warning remains; no new build failure was introduced.
+- Pending runtime observations carried into the handoff:
+  - The long-duration physical observation for playback screen-wake behavior remains pending from Entry 030, although flag behavior was already validated at the OS level.
+  - The strict authenticated SoundCloud dashboard comparison for the registered callback remains pending from Entry 031; live authorization did not report a callback mismatch.
+- Staging rule: only the explicitly reviewed project files from this checkpoint are intended for the handoff commit; ignored env and runtime state must remain excluded.

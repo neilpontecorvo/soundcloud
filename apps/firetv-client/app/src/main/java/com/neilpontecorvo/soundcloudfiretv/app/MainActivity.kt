@@ -1,6 +1,9 @@
 package com.neilpontecorvo.soundcloudfiretv.app
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -12,6 +15,7 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.webkit.ConsoleMessage
 import android.webkit.WebChromeClient
@@ -19,6 +23,7 @@ import android.webkit.WebView
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -51,6 +56,9 @@ import com.neilpontecorvo.soundcloudfiretv.webview.HardenedWebViewClient
 import com.neilpontecorvo.soundcloudfiretv.webview.PlayerBridge
 import com.neilpontecorvo.soundcloudfiretv.webview.WebPlayerHostController
 import com.neilpontecorvo.soundcloudfiretv.webview.WebViewHostConfig
+import java.net.URL
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity(),
     HardenedWebViewClient.NavigationListener,
@@ -94,6 +102,7 @@ class MainActivity : AppCompatActivity(),
     private var playerTimeoutRunnable: Runnable? = null
     private var playerLoadToken: Int = 0
     private var hasLoggedFirstBridgeEvent: Boolean = false
+    private var isKeepingScreenOnForPlayback: Boolean = false
 
     // Selected content context for player
     private var selectedCard: ContentCardSpec? = null
@@ -568,7 +577,7 @@ class MainActivity : AppCompatActivity(),
 
     private fun updateTitle(screen: AppScreen) {
         titleView.text = when (screen) {
-            AppScreen.HOME -> "Cloud Player"
+            AppScreen.HOME -> "ANELO on SoundCloud"
             AppScreen.SEARCH -> "Search"
             AppScreen.LIBRARY -> "Your Library"
             AppScreen.PLAYER -> "Now Playing"
@@ -822,36 +831,89 @@ class MainActivity : AppCompatActivity(),
             )
         }
 
-        // ── TOP REGION (40% of screen): compact header + WebView ────────────
+        // ── TOP REGION: large artwork + expanded SoundCloud waveform ────────
         val topRegion = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+            orientation = LinearLayout.HORIZONTAL
             setBackgroundColor(0xFF050505.toInt())
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(32), dp(10), dp(32), dp(10))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 0,
-                2f   // weight 2 of 5 total = 40%
+                6f
             )
         }
 
-        // Compact now-playing header
-        val headerContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0xFF0A0A0A.toInt())
-            setPadding(dp(32), dp(14), dp(32), dp(12))
+        val artworkFrame = FrameLayout(this).apply {
+            background = roundedRectDrawable(0xFF101010.toInt(), 0xFF2A2A2A.toInt(), dp(1), dp(10))
             layoutParams = LinearLayout.LayoutParams(
+                dp(300),
+                dp(300)
+            ).apply {
+                rightMargin = dp(28)
+            }
+            clipToPadding = true
+            clipChildren = true
+        }
+
+        val artworkView = ImageView(this).apply {
+            setBackgroundResource(R.drawable.artwork_placeholder)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            adjustViewBounds = false
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+        artworkFrame.addView(artworkView)
+        NativeArtworkLoader.load(selected.artworkUrl, artworkView)
+
+        val artworkTint = View(this).apply {
+            setBackgroundColor(0x22000000)
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+        artworkFrame.addView(artworkTint)
+
+        val artworkBadge = TextView(this).apply {
+            text = selected.eyebrow.uppercase().ifBlank { "TRACK" }
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            background = roundedRectDrawable(0xCC000000.toInt(), 0x33FFFFFF, dp(1), dp(4))
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.BOTTOM or Gravity.START
+                marginStart = dp(18)
+                bottomMargin = dp(18)
+            }
+        }
+        artworkFrame.addView(artworkBadge)
+        topRegion.addView(artworkFrame)
+
+        val playerStage = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                0,
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
+                1f
             )
         }
 
         playerStateView = TextView(this).apply {
             text = "LOADING"
             setTextColor(0xFFFF6600.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             letterSpacing = 0.05f
         }
-        headerContainer.addView(playerStateView)
+        playerStage.addView(playerStateView)
 
         val initialTitle = selected.title
         val initialArtist = selected.subtitle.takeIf { it != "Ready to play" }
@@ -865,45 +927,47 @@ class MainActivity : AppCompatActivity(),
             ellipsize = android.text.TextUtils.TruncateAt.END
             setPadding(0, dp(4), 0, dp(2))
         }
-        headerContainer.addView(playerTrackView)
+        playerStage.addView(playerTrackView)
 
         playerArtistView = TextView(this).apply {
             text = initialArtist ?: ""
             setTextColor(0xFFAAAAAA.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
             maxLines = 1
             visibility = if (initialArtist.isNullOrBlank()) View.GONE else View.VISIBLE
         }
-        headerContainer.addView(playerArtistView)
+        playerStage.addView(playerArtistView)
 
         playerErrorView = TextView(this).apply {
             text = ""
             setTextColor(0xFFFF6666.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             maxLines = 1
             visibility = View.GONE
-            setPadding(0, dp(4), 0, 0)
+            setPadding(0, dp(8), 0, 0)
         }
-        headerContainer.addView(playerErrorView)
-
-        topRegion.addView(headerContainer)
+        playerStage.addView(playerErrorView)
 
         val webViewFrame = FrameLayout(this).apply {
-            setBackgroundColor(0xFF111111.toInt())
+            background = roundedRectDrawable(0xFF111111.toInt(), 0x33FFFFFF, dp(1), dp(10))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                0,
-                1f
-            )
+                dp(220)
+            ).apply {
+                topMargin = dp(12)
+            }
+            setPadding(dp(6), dp(6), dp(6), dp(6))
             addView(webView, FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
             ))
         }
-        topRegion.addView(webViewFrame)
+        playerStage.addView(webViewFrame)
+
+        topRegion.addView(playerStage)
         playerRoot.addView(topRegion)
 
-        // ── BOTTOM REGION (60% of screen): native scrollable track list ──────
+        // ── BOTTOM REGION: compact queue, secondary to now-playing stage ─────
         val bottomRegion = ScrollView(this).apply {
             setBackgroundColor(0xFF0A0A0A.toInt())
             isVerticalScrollBarEnabled = false
@@ -911,13 +975,13 @@ class MainActivity : AppCompatActivity(),
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 0,
-                3f   // weight 3 of 5 total = 60%
+                1.1f
             )
         }
 
         val listContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(32), dp(8), dp(32), dp(32))
+            setPadding(dp(32), dp(6), dp(32), dp(14))
         }
         bottomRegion.addView(listContainer)
 
@@ -1104,6 +1168,11 @@ class MainActivity : AppCompatActivity(),
 
     private fun updatePlayerUi(nextState: PlayerUiState) {
         playerUiState = nextState
+        updatePlaybackScreenWakeRequest(
+            nextState.isPlaying
+                && nextState.errorMessage == null
+                && isPlayerVisibleWithPlayableSelection()
+        )
 
         val stateLabel = when {
             nextState.errorMessage != null -> "ERROR"
@@ -1141,6 +1210,7 @@ class MainActivity : AppCompatActivity(),
     }
 
     private fun releasePlayerHost(clearSelection: Boolean) {
+        updatePlaybackScreenWakeRequest(false)
         cancelPlayerReadyTimeout()
         playerWebView?.let { webView ->
             runCatching {
@@ -1166,6 +1236,18 @@ class MainActivity : AppCompatActivity(),
         if (clearSelection) {
             selectedCard = null
         }
+    }
+
+    private fun updatePlaybackScreenWakeRequest(enabled: Boolean) {
+        if (isKeepingScreenOnForPlayback == enabled) return
+
+        isKeepingScreenOnForPlayback = enabled
+        if (enabled) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        Log.i(TAG, "Playback screen wake request: keepScreenOn=$enabled")
     }
 
     private fun startPlayerReadyTimeout(card: ContentCardSpec, contentUrl: String) {
@@ -1471,6 +1553,20 @@ class MainActivity : AppCompatActivity(),
         resources.displayMetrics
     ).toInt()
 
+    private fun roundedRectDrawable(
+        fillColor: Int,
+        strokeColor: Int = Color.TRANSPARENT,
+        strokeWidth: Int = 0,
+        radius: Int = dp(8)
+    ): GradientDrawable = GradientDrawable().apply {
+        shape = GradientDrawable.RECTANGLE
+        setColor(fillColor)
+        cornerRadius = radius.toFloat()
+        if (strokeWidth > 0) {
+            setStroke(strokeWidth, strokeColor)
+        }
+    }
+
     private fun sanitizeUrlForLog(url: String?): String {
         if (url == null) return "null"
         return try {
@@ -1721,5 +1817,43 @@ class MainActivity : AppCompatActivity(),
         private const val TAG = "MainActivity"
         private const val PLAYER_READY_TIMEOUT_MS = 15_000L
         private const val SIGN_IN_POLL_INTERVAL_MS = 5_000L
+    }
+}
+
+private object NativeArtworkLoader {
+    private val executor = Executors.newFixedThreadPool(2)
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val cache = ConcurrentHashMap<String, Bitmap>()
+
+    fun load(url: String?, target: ImageView) {
+        target.setImageDrawable(null)
+        target.tag = null
+        val normalizedUrl = url
+            ?.takeIf { it.startsWith("https://") || it.startsWith("http://") }
+            ?: return
+
+        cache[normalizedUrl]?.let { cached ->
+            target.setImageBitmap(cached)
+            return
+        }
+
+        target.tag = normalizedUrl
+        executor.execute {
+            val bitmap = runCatching {
+                val connection = URL(normalizedUrl).openConnection()
+                connection.connectTimeout = 4000
+                connection.readTimeout = 4000
+                connection.getInputStream().use { stream ->
+                    BitmapFactory.decodeStream(stream)
+                }
+            }.getOrNull() ?: return@execute
+
+            cache[normalizedUrl] = bitmap
+            mainHandler.post {
+                if (target.tag == normalizedUrl) {
+                    target.setImageBitmap(bitmap)
+                }
+            }
+        }
     }
 }

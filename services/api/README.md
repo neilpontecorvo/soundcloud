@@ -15,6 +15,31 @@ npm install
 npm run dev
 ```
 
+For the local Fire TV provider-auth flow, use the repo-root launcher instead of
+manually exporting every variable each time:
+
+```bash
+cd /Users/neilpontecorvo/soundcloud
+npm run start:firetv-api
+```
+
+The launcher binds the API to `0.0.0.0:4000`, derives the LAN callback URL for
+the Fire TV, reuses the local session/token stores, builds the API, and starts
+the `@soundcloud-private/api` workspace. It reads optional overrides from
+`.env.firetv.local`, which is ignored by git. Keep provider secrets there or in
+your shell environment; do not commit them.
+
+Use the tracked template to create the ignored local env file:
+
+```bash
+cp config/firetv-api.env.example .env.firetv.local
+```
+
+Then edit `.env.firetv.local` and replace `PROVIDER_CLIENT_ID` and
+`PROVIDER_CLIENT_SECRET`. After browser authorization completes, provider
+access/refresh tokens are written server-side to
+`services/api/.local/provider-token-store.json`.
+
 ## Provider Configuration
 
 Provider credentials stay on the API service. The Fire TV client only receives

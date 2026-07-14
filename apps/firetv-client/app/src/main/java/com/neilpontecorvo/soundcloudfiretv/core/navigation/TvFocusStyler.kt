@@ -17,6 +17,7 @@ object TvFocusStyler {
         focusedElevation: Float = 24f,
         unfocusedAlpha: Float = 0.85f,
         animationDuration: Long = 150L,
+        raiseOnFocus: Boolean = false,
         onFocusChanged: ((Boolean) -> Unit)? = null
     ) {
         // Set initial state
@@ -35,9 +36,10 @@ object TvFocusStyler {
                     .start()
                 target.elevation = focusedElevation
 
-                // Bring to front for proper layering
-                target.bringToFront()
-                target.parent?.requestLayout()
+                if (raiseOnFocus) {
+                    target.bringToFront()
+                    target.parent?.requestLayout()
+                }
             } else {
                 // Scale back down smoothly
                 target.animate()

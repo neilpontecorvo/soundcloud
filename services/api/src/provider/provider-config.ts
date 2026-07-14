@@ -10,6 +10,8 @@ export interface ProviderConfig {
   authPublicBaseUrl?: string;
   tokenUrl: string;
   apiBaseUrl: string;
+  artistUrl?: string;
+  resolvePath: string;
   feedPath: string;
   searchPath: string;
   libraryTracksPath: string;
@@ -27,6 +29,8 @@ export const readProviderConfig = (): ProviderConfig => ({
   authPublicBaseUrl: readNonEmpty(process.env.PROVIDER_AUTH_PUBLIC_BASE_URL),
   tokenUrl: process.env.PROVIDER_TOKEN_URL ?? 'https://secure.soundcloud.com/oauth/token',
   apiBaseUrl: process.env.PROVIDER_API_BASE_URL ?? 'https://api.soundcloud.com',
+  artistUrl: readNonEmpty(process.env.PROVIDER_ARTIST_URL),
+  resolvePath: process.env.PROVIDER_RESOLVE_PATH ?? '/resolve',
   feedPath: process.env.PROVIDER_FEED_PATH ?? '/me/activities',
   searchPath: process.env.PROVIDER_SEARCH_PATH ?? '/tracks',
   libraryTracksPath: process.env.PROVIDER_LIBRARY_TRACKS_PATH ?? '/me/likes/tracks',

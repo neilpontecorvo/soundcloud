@@ -38,7 +38,8 @@ data class MediaCardDto(
 data class FeedResponseDto(
     val generatedAtIso: String?,
     val cacheStatus: String?,
-    val items: List<MediaCardDto>
+    val items: List<MediaCardDto>,
+    val sections: List<LibrarySectionDto>
 )
 
 data class SearchResponseDto(
@@ -189,7 +190,8 @@ class DeviceSessionApiClient(private val baseUrl: String) {
     private fun JSONObject.toFeedResponseDto(): FeedResponseDto = FeedResponseDto(
         generatedAtIso = optNullableString("generatedAtIso"),
         cacheStatus = optNullableString("cacheStatus"),
-        items = optJSONArray("items").toMediaCards()
+        items = optJSONArray("items").toMediaCards(),
+        sections = toLibrarySections()
     )
 
     private fun JSONObject.toSearchResponseDto(): SearchResponseDto = SearchResponseDto(
@@ -200,6 +202,14 @@ class DeviceSessionApiClient(private val baseUrl: String) {
     )
 
     private fun JSONObject.toLibraryResponseDto(): LibraryResponseDto {
+        return LibraryResponseDto(
+            generatedAtIso = optNullableString("generatedAtIso"),
+            cacheStatus = optNullableString("cacheStatus"),
+            sections = toLibrarySections()
+        )
+    }
+
+    private fun JSONObject.toLibrarySections(): List<LibrarySectionDto> {
         val sectionsJson = optJSONArray("sections")
         val sections = mutableListOf<LibrarySectionDto>()
         for (index in 0 until (sectionsJson?.length() ?: 0)) {
@@ -212,11 +222,7 @@ class DeviceSessionApiClient(private val baseUrl: String) {
                 )
             )
         }
-        return LibraryResponseDto(
-            generatedAtIso = optNullableString("generatedAtIso"),
-            cacheStatus = optNullableString("cacheStatus"),
-            sections = sections
-        )
+        return sections
     }
 
     private fun org.json.JSONArray?.toMediaCards(): List<MediaCardDto> {

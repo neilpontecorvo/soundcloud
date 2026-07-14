@@ -64,6 +64,15 @@ class ContentRepository(private val apiClient: DeviceSessionApiClient) {
     }
 
     private fun FeedResponseDto.toLoadState(): ContentLoadState {
+        if (sections.any { it.items.isNotEmpty() }) {
+            return ContentLoadState.Success(
+                body = "",
+                sections = sections
+                    .filter { it.items.isNotEmpty() }
+                    .map { section -> ContentSectionSpec(section.title, section.items.toContentCards()) }
+            )
+        }
+
         if (items.isEmpty()) return ContentLoadState.Empty
         return ContentLoadState.Success(
             body = "",
@@ -101,19 +110,35 @@ class ContentRepository(private val apiClient: DeviceSessionApiClient) {
 
     private fun List<MediaCardDto>.toContentCards(): List<ContentCardSpec> {
         return map { item ->
-            val subtitle = listOfNotNull(item.creatorName, item.subtitle)
-                .filter { it.isNotBlank() }
-                .joinToString(separator = " - ")
-                .ifBlank { "Ready to play" }
+            val subtitle = buildBrowseSubtitle(item)
             ContentCardSpec(
                 id = item.id,
                 eyebrow = item.kind,
                 title = item.title,
                 subtitle = subtitle,
                 metadata = item.durationText,
+                artworkUrl = item.artworkUrl,
                 webUrl = item.webUrl
             )
         }
+    }
+
+    private fun buildBrowseSubtitle(item: MediaCardDto): String {
+        val creator = item.creatorName?.trim()?.takeIf { it.isNotBlank() }
+        val descriptor = item.subtitle
+            ?.trim()
+            ?.replace(Regex("\\s+"), " ")
+            ?.takeIf { it.isNotBlank() }
+            ?.takeIf { !it.equals(item.title, ignoreCase = true) }
+            ?.takeIf { it.length <= MAX_BROWSE_DESCRIPTOR_LENGTH }
+
+        return listOfNotNull(creator, descriptor)
+            .joinToString(separator = " - ")
+            .ifBlank { "Ready to play" }
+    }
+
+    companion object {
+        private const val MAX_BROWSE_DESCRIPTOR_LENGTH = 54
     }
 
 }

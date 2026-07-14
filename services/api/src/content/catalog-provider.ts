@@ -19,6 +19,7 @@ export interface MediaCard {
 export interface FeedPayload {
   generatedAtIso: string;
   items: MediaCard[];
+  sections?: LibrarySection[];
 }
 
 export interface SearchPayload {
@@ -54,6 +55,10 @@ export class ProviderCatalogProvider implements CatalogProvider {
     if (this.credentials.isLocalDebugSession(session)) return localDebugFeed();
 
     const accessToken = await this.credentials.getAccessToken(session);
+    if (this.config.artistUrl) {
+      return this.getArtistHome(accessToken);
+    }
+
     const json = await this.providerGet(this.config.feedPath, accessToken);
     return {
       generatedAtIso: new Date().toISOString(),
@@ -143,7 +148,81 @@ export class ProviderCatalogProvider implements CatalogProvider {
       clearTimeout(timeout);
     }
   }
+
+  private async getArtistHome(accessToken: string): Promise<FeedPayload> {
+    const artist = await this.resolveArtist(accessToken);
+    const artistId = readString(artist.id);
+    if (!artistId) {
+      throw providerUpstreamError('Provider artist page did not include a usable user id.');
+    }
+
+    const [tracksJson, playlistsJson] = await Promise.all([
+      this.providerGet(`/users/${encodeURIComponent(artistId)}/tracks`, accessToken, limitParams(50)),
+      this.providerGet(`/users/${encodeURIComponent(artistId)}/playlists`, accessToken, limitParams(50))
+    ]);
+
+    const trackItems = extractItems(tracksJson);
+    const playlistItems = extractItems(playlistsJson);
+    const tracks = trackItems.map((item) => normalizeMediaCard(item, 'track'));
+    const albumItems = playlistItems.filter(isAlbumItem);
+    const playlistOnlyItems = playlistItems.filter((item) => !isAlbumItem(item));
+    const albums = albumItems.map((item) => normalizeMediaCard(item, 'playlist'));
+    const playlists = playlistOnlyItems.map((item) => normalizeMediaCard(item, 'playlist'));
+    const topTracks = trackItems
+      .sort(compareByPopularity)
+      .slice(0, 5)
+      .map((item) => normalizeMediaCard(item, 'track'));
+
+    const sections = [
+      { id: 'top-tracks', title: 'Top 5', items: topTracks },
+      { id: 'playlists', title: 'Playlists', items: playlists },
+      { id: 'albums', title: 'Albums', items: albums },
+      { id: 'tracks', title: 'Tracks', items: tracks }
+    ].filter((section) => section.items.length > 0);
+
+    return {
+      generatedAtIso: new Date().toISOString(),
+      items: sections[0]?.items ?? [],
+      sections
+    };
+  }
+
+  private async resolveArtist(accessToken: string): Promise<Record<string, unknown>> {
+    const config = requireProviderApiConfig(this.config);
+    const params = new URLSearchParams();
+    params.set('url', this.config.artistUrl ?? '');
+    const url = new URL(config.resolvePath, config.apiBaseUrl);
+    params.forEach((value, key) => url.searchParams.set(key, value));
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), config.requestTimeoutMs);
+
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${accessToken}`
+        },
+        signal: controller.signal
+      });
+
+      if (!response.ok) {
+        throw providerUpstreamError();
+      }
+
+      const json = await response.json();
+      return isRecord(json) ? json : {};
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
 }
+
+const limitParams = (limit: number): URLSearchParams => {
+  const params = new URLSearchParams();
+  params.set('limit', String(limit));
+  return params;
+};
 
 const extractItems = (payload: unknown): Record<string, unknown>[] => {
   if (Array.isArray(payload)) return payload.filter(isRecord);
@@ -199,6 +278,19 @@ const readKind = (value: unknown, fallback: MediaKind): MediaKind => {
   return fallback;
 };
 
+const isAlbumItem = (item: Record<string, unknown>): boolean => {
+  const media = unwrapMediaItem(item);
+  const markers = [
+    readString(media.set_type),
+    readString(media.playlist_type),
+    readString(media.type),
+    readString(media.kind),
+    readString(media.description),
+    readString(media.title)
+  ].filter(Boolean).join(' ');
+  return /\balbum\b/i.test(markers);
+};
+
 const readId = (item: Record<string, unknown>): string => {
   const value = readString(item.id)
     ?? readString(item.urn)
@@ -206,6 +298,31 @@ const readId = (item: Record<string, unknown>): string => {
     ?? readString(item.permalink_url)
     ?? readString(item.title);
   return value ?? 'provider-item';
+};
+
+const compareByPopularity = (
+  a: Record<string, unknown>,
+  b: Record<string, unknown>
+): number => {
+  const mediaA = unwrapMediaItem(a);
+  const mediaB = unwrapMediaItem(b);
+  return readMetric(mediaB) - readMetric(mediaA);
+};
+
+const readMetric = (item: Record<string, unknown>): number => (
+  readNumber(item.playback_count)
+  ?? readNumber(item.favoritings_count)
+  ?? readNumber(item.likes_count)
+  ?? 0
+);
+
+const readNumber = (value: unknown): number | undefined => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
 };
 
 const readString = (value: unknown): string | undefined => {

@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "check:api": "npm --workspace @soundcloud-private/api run check",
+    "start:firetv-api": "bash scripts/start-firetv-api.sh",
     "preflight:firetv-provider-auth": "node scripts/firetv-provider-auth-preflight.mjs"
   }
 }
