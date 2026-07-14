@@ -1028,3 +1028,37 @@ Expected on-device outcomes:
   - The long-duration physical observation for playback screen-wake behavior remains pending from Entry 030, although flag behavior was already validated at the OS level.
   - The strict authenticated SoundCloud dashboard comparison for the registered callback remains pending from Entry 031; live authorization did not report a callback mismatch.
 - Staging rule: only the explicitly reviewed project files from this checkpoint are intended for the handoff commit; ignored env and runtime state must remain excluded.
+
+### Entry 033
+- Status: real-provider authorization and physical Fire TV success path validated; strict dashboard-text callback comparison remains unverified.
+- Scope held:
+  - Continued only Entry 031's pending provider-auth validation.
+  - Did not repeat debug-auth implementation, playback implementation, APK build/install, pairing implementation, styling, or feature work.
+- Provider configuration and preflight:
+  - Started the API with `npm run start:firetv-api`; the API TypeScript build passed, eight persisted sessions loaded, and the service listened on `0.0.0.0:4000` in development mode.
+  - Ran `npm run preflight:firetv-provider-auth` with the existing ignored `.env.firetv.local` loaded into the process.
+  - All preflight checks passed, including required provider env presence, LAN backend health/routing, local callback construction, Fire TV reachability, ADB connectivity, and device enumeration.
+  - The callback URI value was redacted from captured command output and was not written to this worklog.
+  - The authenticated SoundCloud developer dashboard value was not separately inspected. Browser control failed before page access, and the user explicitly reported that they had not performed a separate dashboard comparison.
+  - SoundCloud authorization accepted the configured callback and completed it successfully, which operationally proves the callback was accepted for this application, but this is not recorded as a byte-for-byte dashboard inspection.
+- Physical Fire TV state:
+  - Relaunched the currently installed APK without rebuilding or reinstalling it.
+  - The first relaunch restored the prior real-provider session directly to populated Home content, independently confirming that the previously persisted provider session was still valid at the start of this pass.
+  - Cleared only the Fire TV app's local data to require a genuinely fresh pairing session; no APK, backend implementation, or provider configuration was modified.
+  - Relaunched MainActivity and confirmed a fresh pairing URL and code are displayed with the normal automatic-continuation message.
+- Phone handoff:
+  - `adb devices -l` exposed only the Fire TV target; the Galaxy S26+ is not connected or authorized as an Android debug target, so the pairing URL could not be remotely opened on the phone from this environment.
+  - The user opened the displayed pairing URL on the Galaxy S26+, completed SoundCloud authorization, and confirmed the provider callback completed operationally.
+- Physical provider-auth results:
+  1. Fire TV automatically left the pairing screen after callback completion and rendered authenticated Home without a manual poll or debug-auth fallback.
+  2. Home loaded real provider artwork and populated Top 5, Playlists, Albums, and Tracks sections.
+  3. Search for `anelo` returned 20 real provider tracks through the authenticated API and rendered multiple artwork-backed results on the Fire TV Search screen.
+  4. Library loaded real Saved Tracks and Playlists content.
+  5. Selecting a real provider track opened Player, loaded the SoundCloud widget, advanced playback time, and reported `PLAYING`.
+  6. Global `KEYCODE_MEDIA_PLAY_PAUSE` dispatched the existing transport toggle, produced the widget `pause` event, changed the native Player state to `PAUSED`, and cleared the playback screen-wake request.
+  7. A second global Play/Pause toggle produced the widget `play` event, returned the native state to `PLAYING`, and restored the playback screen-wake request.
+  8. Force-stop and cold relaunch destroyed the active Player/WebView, restored the persisted authenticated session without re-pairing, and repopulated real provider Home.
+- Security and scope:
+  - No callback URI, provider credential, provider token, refresh token, pairing code, or session identifier was written to this worklog.
+  - No `.env` file, APK, authentication implementation, pairing implementation, playback implementation, WebView hardening, controlled-host rule, or allowlist was changed.
+- Remaining evidence gap: directly inspect the authenticated SoundCloud developer dashboard and compare its registered callback byte-for-byte with the ignored local env value without printing or recording either value.
