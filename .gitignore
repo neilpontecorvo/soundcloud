@@ -16,3 +16,6 @@ dist/
 
 # Runtime-only backend state (file-backed session store)
 services/api/data/
+
+# Local physical-device screenshots and UI inspection captures
+artifacts/

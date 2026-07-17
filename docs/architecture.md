@@ -16,14 +16,18 @@ The architecture is now beyond the prior runtime-blocker stage.
 
 What is already functioning end-to-end enough to be considered established:
 
-- Native Fire TV shell with top navigation and focused remote movement
+- Native Fire TV shell mapped from a centralized 1920 × 1080 reference frame
+- Fixed five-destination header, page-specific nested scroll regions, and persistent mini-player
 - Backend session bootstrap and polling through the API service
 - Local debug session authentication for Fire TV validation
 - Backend-proxied and normalized content for:
   - feed
   - search
   - library
-- Card-based Home / Search / Library UI on device
+- Provider-backed Home, Search, and Library rails with complete pagination
+- Shared Playlist/Album Detail screen with complete track queues and explicit virtual focus routing
+- Native waveform/description Player surface with bounded seek and internal description scrolling
+- Native private-track playback through a server-side authenticated stream proxy
 - Controlled WebView player host architecture
 - Player selection handoff from content cards into the Player screen
 - End-to-end playback on physical Fire TV
@@ -32,11 +36,7 @@ What is already functioning end-to-end enough to be considered established:
 
 **Current architectural posture**
 
-The core runtime architecture is now proven. The remaining work is not a foundational architecture question. It is mostly:
-
-- validation of remaining transport behaviors (`Next` / `Previous`)
-- optional `FF/REW` design expansion
-- lint/cleanup/polish
+The core runtime and requested redesign architecture are proven on the physical Fire TV. Remaining work is routine compatibility maintenance rather than an unresolved product path.
 
 So the architecture is now in a stable state rather than a blocked state.
 
@@ -108,6 +108,8 @@ Node.js / TypeScript API service responsible for:
   devices; only `authenticated` sessions are flushed to disk, and writes are
   atomic via tmp-file + rename
 - feed/search/library proxy routes
+- complete playlist/album detail normalization and pagination
+- authenticated private-track media resolution and byte-range proxying
 - session validation and auth guards
 - debug-only local auth completion path for Fire TV testing
 
@@ -170,25 +172,26 @@ Shared constants/contracts related to controlled web-player integration.
 1. Android client calls backend API using backend session ID only
 2. API validates session
 3. API uses provider-backed server-side adapters
-4. API returns normalized content DTOs
-5. Home / Search / Library render cards from normalized backend responses
+4. API follows provider pagination and returns normalized content DTOs
+5. Home / Search / Library render independent rails from normalized responses
+6. Playlist and album selections load complete normalized track queues
 
 ## 4.4 Player Flow (verified)
 
 1. user selects a playable card
 2. selected item is stored as the current playable target
 3. app navigates to Player
-4. `WebPlayerHostController` resolves a controlled embeddable/widget target
-5. controlled host entry loads inside hardened WebView
-6. widget/player runtime initializes
-7. `PlayerBridge` reports:
+4. Public items use `WebPlayerHostController` to resolve a controlled embeddable/widget target; private account-owned items use Android `MediaPlayer` against the backend stream endpoint
+5. for public playback, the controlled host entry loads inside the hardened WebView
+6. the widget/native player runtime initializes
+7. `PlayerBridge` or the native player reports:
    - loading
    - ready
    - play/pause state
    - metadata
    - errors
 8. native player shell reflects those states
-9. playback begins on physical Fire TV
+9. playback begins on physical Fire TV; provider credentials remain server-side in both paths
 
 ## 4.5 Launcher Flow (verified)
 
@@ -303,17 +306,8 @@ Important distinction:
 
 ## 8. Current Architectural Risk Areas
 
-## 8.1 Remaining transport scope
-Most important open runtime-validation area.
-
-Observed/known:
-- Play/Pause is now proven on device
-- command path exists for Next/Previous
-- FF/REW are still intentionally unsupported
-
-Risk categories:
-- queue-dependent behavior for Next/Previous may need additional validation
-- future seek/jump support would require a real bridge contract rather than synthetic no-op handling
+## 8.1 Transport compatibility
+Play/Pause, queue-aware Previous/Next, bounded ±10-second media-key seeking, and minute-scale waveform scanning are implemented through narrow playback-specific interfaces. Provider/widget changes remain the only ongoing compatibility risk.
 
 ## 8.2 Stale installed APK risk
 Device testing can still be misleading if the installed APK does not match local repo state.
@@ -346,15 +340,13 @@ The shortest path forward is incremental polish on a proven architecture, not ar
 
 Single current architectural objective:
 
-> Keep the proven path stable and finish the remaining polish/validation tasks.
+> Keep the proven private-use path stable through routine provider/platform maintenance.
 
 Practical near-term focus:
 
-- validate `Next` / `Previous` under real queue/list conditions
-- decide future `FF/REW` behavior
 - complete lint/deprecation/resource cleanup
-- refine UI/player polish without disturbing the solved playback/runtime path
+- preserve the tested UI/player behavior while provider APIs evolve
 
 The following path is already proven and should be treated as the architecture gate that is now complete:
 
-> `select card -> Player -> controlled host -> bridge ready -> playable state`
+> `browse complete content -> select collection/track -> Player -> seek/play -> synchronized mini-player`

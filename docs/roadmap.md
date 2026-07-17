@@ -5,10 +5,10 @@
 - Phase 1: Complete
 - Phase 2: Functionally Complete
 - Phase 3: Functionally Complete / Validation Proven
-- Phase 4: Active
+- Phase 4: Complete for the private-use target
 
 Current primary focus:
-- polish, cleanup, and remaining transport validation (`Next` / `Previous`)
+- routine provider/platform compatibility maintenance
 
 ---
 
@@ -97,9 +97,10 @@ Result:
 - [x] `LOGIN_REQUIRED` as the normal unauthenticated state (not an error);
       debug auth reduced to an explicit fallback button
 
-### Still Open But Non-Blocking
-- [ ] Broader runtime validation for Next/Previous under real queue/list state
-- [ ] Decide whether FF/REW should remain intentionally unsupported or gain a real seek/jump contract
+### Completed Transport Expansion
+- [x] Queue-aware Next/Previous behavior
+- [x] Bounded ±10-second media-key seek
+- [x] Minute-scale focused-waveform scanning with held-key acceleration
 
 Result:
 - One working path is now proven:
@@ -110,20 +111,25 @@ Result:
 ## Phase 4 — Polish (Current)
 
 ### UI / UX
-- [ ] Refine card rail density for 4K displays
-- [ ] Improve focus styling consistency
-- [ ] Improve Search UX
+- [x] Implement centralized 1920 × 1080 reference-frame layout
+- [x] Implement fixed header and persistent mini-player
+- [x] Implement complete Home/Library/Search rails and deterministic nested scrolling
+- [x] Implement shared Playlist/Album Detail with complete selectable track queues
+- [x] Validate high-contrast focus styling on physical Fire TV
 
 ### Player
-- [ ] Native overlay controls polish
-- [ ] Playback state sync refinement
-- [ ] Better error messaging
-- [ ] Confirm Next/Previous behavior on device with real queue/list conditions
+- [x] Implement native waveform and internally scrollable description panels
+- [x] Implement bounded seek and minute-scale held-D-pad scanning
+- [x] Preserve global Play/Pause and queue-aware Next/Previous
+- [x] Add full-length private-track playback through the authenticated backend proxy
+- [x] Keep the display awake while the private app is in use
 
 ### Code Quality
-- [ ] Fix Android lint issues
+- [x] Fix task-related Android lint issues
+- [x] Add Android focus/grid/search/queue/artwork unit tests
+- [x] Add API pagination, playlist normalization, and private-stream tests
 - [ ] Remove deprecated APIs
-- [ ] Clean unused resources and strings
+- [ ] Clean low-risk unused resources and strings during routine maintenance
 
 ### Reliability
 - [ ] Add telemetry hooks
@@ -138,7 +144,7 @@ Result:
 - [ ] Add environment-based config separation
 - [ ] Improve CSP enforcement for controlled host
 - [ ] Expand diagnostics for remote debugging
-- [ ] Optional seek/jump contract for FF/REW
+- [ ] Continue compatibility testing for the existing seek contract when provider behavior changes
 
 ---
 
@@ -149,6 +155,6 @@ Do NOT reopen solved runtime branches unless they regress.
 Currently proven:
 
 > **Working path:**
-> Home → select track → Player → ready → playing
+> Home/Library/Search → select track or collection → complete queue/detail → Player → seek/play
 
-That gate is now complete. Remaining work is polish, cleanup, and optional control expansion.
+That gate is complete for public and account-owned private tracks. Remaining work is non-blocking maintenance and optional distribution preparation.

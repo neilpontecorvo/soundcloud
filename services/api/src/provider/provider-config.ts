@@ -11,11 +11,16 @@ export interface ProviderConfig {
   tokenUrl: string;
   apiBaseUrl: string;
   artistUrl?: string;
+  artistSpotlightIds: string[];
   resolvePath: string;
   feedPath: string;
+  recentlyPlayedPath: string;
   searchPath: string;
+  searchPlaylistsPath: string;
+  searchUsersPath: string;
   libraryTracksPath: string;
   libraryPlaylistsPath: string;
+  libraryLikedPlaylistsPath: string;
   tokenStorePath: string;
   requestTimeoutMs: number;
 }
@@ -30,11 +35,22 @@ export const readProviderConfig = (): ProviderConfig => ({
   tokenUrl: process.env.PROVIDER_TOKEN_URL ?? 'https://secure.soundcloud.com/oauth/token',
   apiBaseUrl: process.env.PROVIDER_API_BASE_URL ?? 'https://api.soundcloud.com',
   artistUrl: readNonEmpty(process.env.PROVIDER_ARTIST_URL),
+  artistSpotlightIds: readCsv(process.env.PROVIDER_ARTIST_SPOTLIGHT_IDS) ?? [
+    '97635529',
+    '1559403019',
+    '1559396260',
+    '2115751013',
+    '1884745022'
+  ],
   resolvePath: process.env.PROVIDER_RESOLVE_PATH ?? '/resolve',
   feedPath: process.env.PROVIDER_FEED_PATH ?? '/me/activities',
+  recentlyPlayedPath: process.env.PROVIDER_RECENTLY_PLAYED_PATH ?? '/me/recently-played/tracks',
   searchPath: process.env.PROVIDER_SEARCH_PATH ?? '/tracks',
+  searchPlaylistsPath: process.env.PROVIDER_SEARCH_PLAYLISTS_PATH ?? '/playlists',
+  searchUsersPath: process.env.PROVIDER_SEARCH_USERS_PATH ?? '/users',
   libraryTracksPath: process.env.PROVIDER_LIBRARY_TRACKS_PATH ?? '/me/likes/tracks',
   libraryPlaylistsPath: process.env.PROVIDER_LIBRARY_PLAYLISTS_PATH ?? '/me/playlists',
+  libraryLikedPlaylistsPath: process.env.PROVIDER_LIBRARY_LIKED_PLAYLISTS_PATH ?? '/me/likes/playlists',
   tokenStorePath: process.env.PROVIDER_TOKEN_STORE_PATH ?? path.join(process.cwd(), '.local', 'provider-token-store.json'),
   requestTimeoutMs: Number(process.env.PROVIDER_REQUEST_TIMEOUT_MS ?? 8000)
 });
@@ -58,3 +74,11 @@ export const requireProviderApiConfig = (config: ProviderConfig): ProviderConfig
 const readNonEmpty = (value: string | undefined): string | undefined => (
   value && value.trim().length > 0 ? value.trim() : undefined
 );
+
+const readCsv = (value: string | undefined): string[] | undefined => {
+  const items = value
+    ?.split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return items && items.length > 0 ? items : undefined;
+};

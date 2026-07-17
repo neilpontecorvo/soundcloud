@@ -307,6 +307,7 @@ class WebPlayerHostController(
                   var widget = null;
                   var isPlaying = false;
                   var didAttemptDebugPlay = false;
+                  var lastProgressReportAt = 0;
 
                   function nativeCall(name) {
                     if (!window.NativePlayer || typeof window.NativePlayer[name] !== 'function') return;
@@ -341,6 +342,26 @@ class WebPlayerHostController(
                       if (!sound) return;
                       var artist = sound.user && sound.user.username ? sound.user.username : '';
                       nativeCall('reportTrackChange', String(sound.id || ''), String(sound.title || ''), String(artist || ''));
+                    });
+                  }
+
+                  function reportProgress(event, force) {
+                    if (!widget || typeof widget.getDuration !== 'function') return;
+                    var now = Date.now();
+                    if (!force && now - lastProgressReportAt < 1000) return;
+                    lastProgressReportAt = now;
+                    var eventPosition = event && typeof event.currentPosition === 'number'
+                      ? event.currentPosition
+                      : null;
+                    widget.getDuration(function(duration) {
+                      function send(position) {
+                        nativeCall('reportProgress', Number(position || 0), Number(duration || 0));
+                      }
+                      if (eventPosition !== null) {
+                        send(eventPosition);
+                      } else if (typeof widget.getPosition === 'function') {
+                        widget.getPosition(send);
+                      }
                     });
                   }
 
@@ -383,9 +404,11 @@ class WebPlayerHostController(
                       debugPlayer('widget_event_bind_failed', String(eventName || 'missing_event'));
                       return;
                     }
-                    widget.bind(eventName, function() {
-                      debugPlayer('widget_event_fired', String(eventName));
-                      handler();
+                    widget.bind(eventName, function(event) {
+                      if (eventName !== window.SC.Widget.Events.PLAY_PROGRESS) {
+                        debugPlayer('widget_event_fired', String(eventName));
+                      }
+                      handler(event);
                     });
                     debugPlayer('widget_event_bound', String(eventName));
                   }
@@ -410,6 +433,12 @@ class WebPlayerHostController(
                         if (command === 'toggle') isPlaying ? widget.pause() : widget.play();
                         if (command === 'next' && widget.next) widget.next();
                         if (command === 'previous' && widget.prev) widget.prev();
+                      },
+                      seekTo: function(positionMs) {
+                        if (!widget || typeof widget.seekTo !== 'function') return;
+                        var safePosition = Math.max(0, Number(positionMs) || 0);
+                        widget.seekTo(safePosition);
+                        reportProgress({currentPosition: safePosition}, true);
                       }
                     };
 
@@ -420,6 +449,7 @@ class WebPlayerHostController(
                       reportPausedState('ready');
                       reportCurrentSoundState('ready');
                       reportTrack();
+                      reportProgress(null, true);
                       if (!didAttemptDebugPlay) {
                         didAttemptDebugPlay = true;
                         try {
@@ -443,6 +473,12 @@ class WebPlayerHostController(
                     bindEvent(window.SC.Widget.Events.PAUSE, function() {
                       isPlaying = false;
                       nativeCall('reportPlaybackState', false);
+                    });
+                    bindEvent(window.SC.Widget.Events.PLAY_PROGRESS, function(event) {
+                      reportProgress(event, false);
+                    });
+                    bindEvent(window.SC.Widget.Events.SEEK, function(event) {
+                      reportProgress(event, true);
                     });
                     bindEvent(window.SC.Widget.Events.ERROR, function() {
                       reportLoading(false);

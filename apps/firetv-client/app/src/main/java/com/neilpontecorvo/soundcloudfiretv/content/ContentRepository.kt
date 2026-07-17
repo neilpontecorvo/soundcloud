@@ -8,6 +8,7 @@ import com.neilpontecorvo.soundcloudfiretv.network.DeviceSessionApiClient
 import com.neilpontecorvo.soundcloudfiretv.network.FeedResponseDto
 import com.neilpontecorvo.soundcloudfiretv.network.LibraryResponseDto
 import com.neilpontecorvo.soundcloudfiretv.network.MediaCardDto
+import com.neilpontecorvo.soundcloudfiretv.network.PlaylistDetailDto
 import com.neilpontecorvo.soundcloudfiretv.network.SearchResponseDto
 import java.util.concurrent.Executors
 
@@ -21,10 +22,30 @@ sealed class ContentLoadState {
     data class Error(val message: String) : ContentLoadState()
 }
 
+data class PlaylistDetail(
+    val id: String,
+    val title: String,
+    val creatorName: String?,
+    val artworkUrl: String?,
+    val description: String?,
+    val durationMs: Long?,
+    val durationText: String?,
+    val trackCount: Int,
+    val webUrl: String?,
+    val tracks: List<ContentCardSpec>
+)
+
+sealed class PlaylistLoadState {
+    data object Loading : PlaylistLoadState()
+    data class Success(val detail: PlaylistDetail) : PlaylistLoadState()
+    data class Error(val message: String) : PlaylistLoadState()
+}
+
 class ContentRepository(private val apiClient: DeviceSessionApiClient) {
 
     private val executor = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var searchGeneration = 0
 
     fun loadFeed(sessionId: String, callback: (ContentLoadState) -> Unit) {
         runRequest(callback) {
@@ -33,14 +54,39 @@ class ContentRepository(private val apiClient: DeviceSessionApiClient) {
     }
 
     fun search(sessionId: String, query: String, callback: (ContentLoadState) -> Unit) {
-        runRequest(callback) {
-            apiClient.search(sessionId, query).toLoadState()
+        val generation = ++searchGeneration
+        mainHandler.post { callback(ContentLoadState.Loading) }
+        executor.execute {
+            val nextState = try {
+                apiClient.search(sessionId, query).toLoadState()
+            } catch (error: Exception) {
+                ContentLoadState.Error(error.message ?: error.javaClass.simpleName)
+            }
+            mainHandler.post {
+                if (generation == searchGeneration) callback(nextState)
+            }
         }
     }
 
     fun loadLibrary(sessionId: String, callback: (ContentLoadState) -> Unit) {
         runRequest(callback) {
             apiClient.getLibrary(sessionId).toLoadState()
+        }
+    }
+
+    fun loadPlaylist(
+        sessionId: String,
+        playlistId: String,
+        callback: (PlaylistLoadState) -> Unit
+    ) {
+        mainHandler.post { callback(PlaylistLoadState.Loading) }
+        executor.execute {
+            val nextState = try {
+                PlaylistLoadState.Success(apiClient.getPlaylistDetail(sessionId, playlistId).toPlaylistDetail())
+            } catch (error: Exception) {
+                PlaylistLoadState.Error(error.message ?: error.javaClass.simpleName)
+            }
+            mainHandler.post { callback(nextState) }
         }
     }
 
@@ -103,25 +149,57 @@ class ContentRepository(private val apiClient: DeviceSessionApiClient) {
             sections = sections
                 .filter { it.items.isNotEmpty() }
                 .map { section ->
-                    ContentSectionSpec(section.title, section.items.toContentCards())
+                    ContentSectionSpec(
+                        section.title,
+                        section.items.toContentCards(
+                            eyebrowOverride = if (section.id.equals("albums", ignoreCase = true)) {
+                                "album"
+                            } else {
+                                null
+                            }
+                        )
+                    )
                 }
         )
     }
 
-    private fun List<MediaCardDto>.toContentCards(): List<ContentCardSpec> {
+    private fun List<MediaCardDto>.toContentCards(
+        eyebrowOverride: String? = null
+    ): List<ContentCardSpec> {
         return map { item ->
             val subtitle = buildBrowseSubtitle(item)
             ContentCardSpec(
                 id = item.id,
-                eyebrow = item.kind,
+                eyebrow = eyebrowOverride ?: item.kind,
                 title = item.title,
                 subtitle = subtitle,
                 metadata = item.durationText,
                 artworkUrl = item.artworkUrl,
-                webUrl = item.webUrl
+                webUrl = item.webUrl,
+                creatorName = item.creatorName,
+                description = item.description ?: item.subtitle,
+                creatorAvatarUrl = item.creatorAvatarUrl,
+                waveformUrl = item.waveformUrl,
+                durationMs = item.durationMs,
+                trackCount = item.trackCount,
+                isPrivate = item.isPrivate,
+                creatorProfileUrl = item.creatorProfileUrl
             )
         }
     }
+
+    private fun PlaylistDetailDto.toPlaylistDetail(): PlaylistDetail = PlaylistDetail(
+        id = id,
+        title = title,
+        creatorName = creatorName,
+        artworkUrl = artworkUrl,
+        description = description,
+        durationMs = durationMs,
+        durationText = durationText,
+        trackCount = trackCount,
+        webUrl = webUrl,
+        tracks = tracks.toContentCards()
+    )
 
     private fun buildBrowseSubtitle(item: MediaCardDto): String {
         val creator = item.creatorName?.trim()?.takeIf { it.isNotBlank() }

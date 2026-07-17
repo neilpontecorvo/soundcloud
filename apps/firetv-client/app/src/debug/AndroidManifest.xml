@@ -1,4 +1,8 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:ignore="MissingLeanbackLauncher,ImpliedTouchscreenHardware,MissingLeanbackSupport">
+    <!-- TV declarations live in and are verified in the merged main manifest;
+         these three detectors otherwise evaluate this debug overlay in isolation. -->
     <application
         android:usesCleartextTraffic="true"
         android:networkSecurityConfig="@xml/network_security_config" />

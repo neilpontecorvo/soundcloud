@@ -1,6 +1,9 @@
 import { NextFunction, Request, Response, Router } from 'express';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { ContentCache } from '../content/content-cache.js';
 import { CatalogProvider, ProviderCatalogProvider } from '../content/catalog-provider.js';
+import { TrackPlaybackService } from '../content/track-playback-service.js';
 import {
   providerConfig,
   providerCredentialsService
@@ -13,10 +16,12 @@ const provider: CatalogProvider = new ProviderCatalogProvider(
   providerConfig,
   providerCredentialsService
 );
+const playback = new TrackPlaybackService(providerConfig, providerCredentialsService);
 const cache = new ContentCache();
 const FEED_CACHE_TTL_MS = 30 * 1000;
 const LIBRARY_CACHE_TTL_MS = 30 * 1000;
 const SEARCH_CACHE_TTL_MS = 15 * 1000;
+const PLAYLIST_CACHE_TTL_MS = 30 * 1000;
 
 contentRouter.get('/feed', requireAuthenticatedSession, asyncRoute(async (req, res) => {
   const session = requireSession(req);
@@ -59,6 +64,41 @@ contentRouter.get('/library', requireAuthenticatedSession, asyncRoute(async (req
     ...result.value,
     cacheStatus: result.cacheStatus
   });
+}));
+
+contentRouter.get('/playlists/:playlistId', requireAuthenticatedSession, asyncRoute(async (req, res) => {
+  const session = requireSession(req);
+  const playlistId = req.params.playlistId?.trim();
+  if (!playlistId) {
+    throw new Error('Playlist id is required.');
+  }
+  const result = await cache.getOrSet(
+    `playlist:${session.sessionId}:${playlistId}`,
+    PLAYLIST_CACHE_TTL_MS,
+    () => provider.getPlaylistDetail(playlistId, session)
+  );
+
+  res.json({
+    ...result.value,
+    cacheStatus: result.cacheStatus
+  });
+}));
+
+contentRouter.get('/tracks/:trackId/stream', requireAuthenticatedSession, asyncRoute(async (req, res) => {
+  const session = requireSession(req);
+  const trackId = req.params.trackId?.trim();
+  if (!trackId) {
+    throw new Error('Track id is required.');
+  }
+  const result = await playback.openTrackStream(trackId, session, req.header('range') ?? undefined);
+  res.status(result.statusCode);
+  Object.entries(result.headers).forEach(([name, value]) => res.setHeader(name, value));
+
+  try {
+    await pipeline(Readable.fromWeb(result.body), res);
+  } catch (error) {
+    if (!res.destroyed) throw error;
+  }
 }));
 
 function asyncRoute(

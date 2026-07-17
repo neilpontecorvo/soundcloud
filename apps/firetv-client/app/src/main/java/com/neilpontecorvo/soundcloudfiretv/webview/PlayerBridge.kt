@@ -43,6 +43,7 @@ class PlayerBridge(
         fun onLoadingStateChanged(isLoading: Boolean)
         fun onPlaybackStateChanged(isPlaying: Boolean)
         fun onTrackChanged(trackId: String?, title: String?, artist: String?)
+        fun onProgressChanged(positionMs: Long, durationMs: Long)
         fun onPlaybackError(errorCode: String, message: String)
         fun onReady()
     }
@@ -136,6 +137,15 @@ class PlayerBridge(
         listener?.onTrackChanged(safeTrackId, safeTitle, safeArtist)
     }
 
+    /** Receives bounded playback position data from the controlled widget. */
+    @JavascriptInterface
+    fun reportProgress(positionMs: Double, durationMs: Double) {
+        if (!positionMs.isFinite() || !durationMs.isFinite()) return
+        val safeDuration = durationMs.toLong().coerceAtLeast(0L)
+        val safePosition = positionMs.toLong().coerceIn(0L, safeDuration.coerceAtLeast(0L))
+        listener?.onProgressChanged(safePosition, safeDuration)
+    }
+
     /**
      * Called by JavaScript to report playback errors.
      *
@@ -197,6 +207,16 @@ class PlayerBridge(
      */
     fun sendPrevious(webView: WebView) {
         executePlayerCommand(webView, PlayerCommand.PREVIOUS)
+    }
+
+    /** Seeks to a native-validated absolute position in milliseconds. */
+    fun sendSeekTo(webView: WebView, positionMs: Long) {
+        val safePosition = positionMs.coerceAtLeast(0L)
+        Log.d(TAG, "Native -> JS: sending seekTo($safePosition)")
+        webView.evaluateJavascript(
+            "(function(){if(window.FireTvPlayerHost)window.FireTvPlayerHost.seekTo($safePosition);})();",
+            null
+        )
     }
 
     private fun executePlayerCommand(webView: WebView, command: PlayerCommand) {

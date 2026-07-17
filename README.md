@@ -11,11 +11,12 @@ A private, sideloaded **Amazon Fire TV** client that combines:
 
 ## Current Status
 
-**The app is now in a workable internal stage. Core runtime is proven. Remaining work is mostly UI/navigation polish and a small set of transport/cleanup tasks.**
+**The 1920 × 1080 Fire TV redesign is implemented and validated on the physical Fire TV. The private-use app now has complete provider-backed browsing, collection detail, seeking, and public/private playback paths.**
 
 What is currently verified working on physical Fire TV:
 
-- Native Fire TV shell with deterministic remote navigation
+- Native 1920 × 1080 reference-frame shell with deterministic remote navigation
+- Fixed five-destination header and persistent bottom mini-player
 - Backend session bootstrap and polling
 - File-backed session persistence on the API service so authenticated sessions survive a backend restart
 - Automatic session restore on app launch using backend-authoritative re-validation of the persisted `sessionId`
@@ -25,7 +26,12 @@ What is currently verified working on physical Fire TV:
   - `GET /v1/feed`
   - `GET /v1/search`
   - `GET /v1/library`
-- Home / Search / Library screens consuming backend-normalized content
+- Home rails for My Feed, More from ANELO, Spotlight, and Recently Played
+- Library rails for the exact Spotlight selection, Tracks, Playlists, and Albums
+- Complete paginated Library and Search results with independent horizontal rails
+- Playlist and album detail using the same accessible, complete track-table behavior
+- Player waveform focus, minute-scale D-pad scanning, internal description scrolling, and real queue context
+- Server-side authenticated playback proxy for the account owner's private tracks; provider credentials never reach Android or the media CDN
 - Hardened WebView boundary with:
   - controlled host strategy
   - allowlisted hosts
@@ -44,36 +50,14 @@ What is currently verified working on physical Fire TV:
 - Fire TV custom banner visibility on the home screen tile
 - Local backend access from Fire TV over LAN
 - Two-region Player layout with top playback surface and bottom native queue list
+- Screen-wake protection while the app is in use
+- Fire TV launcher icon/banner mapped to the packaged 1280 × 720 artwork and launcher label `SOUNDCLOUD`
 
 ## Current Product Reality
 
-The app is no longer blocked on playback/runtime fundamentals.
+The requested private-use success paths are complete on the installed APK: real provider authentication and session restoration, full Home/Library/Search navigation, playlist and album track selection, public playback, full-length private-track playback, waveform seeking, and global transport control.
 
-Current remaining work is concentrated in these areas:
-
-1. **Provider-auth validation**
-   - validate the real provider OAuth pairing flow on the physical Fire TV
-   - confirm provider refresh/recovery against real credentials after backend restart
-
-2. **TV-first UI polish**
-   - convert the main menu/navigation into the intended vertical TV layout
-   - tighten focus styling consistency
-   - improve 4K spacing/density
-
-3. **Navigation behavior fixes**
-   - keep selection movement deterministic left/right across cards, playlists, and components
-   - ensure the focus indicator moves between items rather than rails/cards visually shifting into a static selection state
-   - continue validating playlist/component navigation paths
-
-4. **Transport validation**
-   - confirm `Next` / `Previous` behavior under real queue/list conditions
-   - keep `Fast Forward` / `Rewind` unsupported unless a real seek/jump contract is intentionally added later
-
-5. **Cleanup**
-   - lint / manifest cleanup
-   - deprecated API cleanup
-   - low-risk resource/string cleanup
-   - search UX polish
+Remaining work is non-blocking maintenance: replace deprecated fullscreen APIs when raising the platform baseline, prepare Appstore-only listing assets only if distribution is ever desired, and keep provider/API compatibility under routine validation.
 
 ## Monorepo Layout
 
@@ -205,7 +189,9 @@ The backend API is responsible for:
 - provider OAuth exchange and refresh
 - server-side token persistence for local development
 - file-backed authenticated session persistence
-- normalized feed/search/library proxy responses
+- normalized feed/search/library proxy responses with provider pagination
+- normalized complete playlist/album detail and queue metadata
+- authenticated private-track stream resolution and Range-aware media proxying
 - session validation and cache behavior
 
 Debug-only local auth completion exists for Fire TV validation:
@@ -224,13 +210,14 @@ This route is local-development only and is disabled in production.
 - **Center / Select:** activate focused element
 - **Back:** app back / screen back
 - **Play / Pause:** transport command routed to player module and validated on physical Fire TV
-- **Next / Previous:** command path exists and remains under runtime validation
-- **Fast Forward / Rewind:** intentionally unsupported no-op behavior until a real seek/jump contract exists
+- **Next / Previous:** move through the active playlist/album queue
+- **Fast Forward / Rewind:** seek by 10 seconds through the bounded playback-specific bridge
+- **D-pad Left / Right on a focused waveform:** scan by one minute and accelerate while held
 - **Menu:** settings / context hook
 
 ## Current Scope
 
-### Verified complete enough
+### Verified complete
 - Fire TV native shell
 - backend session/auth/content pipeline
 - backend-normalized content loading
@@ -242,14 +229,15 @@ This route is local-development only and is disabled in production.
 - global Play/Pause handling on device
 - launcher presence and banner visibility on Fire TV home screen
 - session persistence + silent restore flow
+- 1920 × 1080 Home/Library/Search/Playlist/Player redesign
+- complete playlist and album queues with selectable tracks
+- full-length account-owned private-track playback
+- waveform seek and synchronized mini-player progress
 
 ### Remaining scope
-- vertical TV navigation/menu refinement
-- deterministic left/right item navigation cleanup
-- broader validation for queue/playlist navigation paths
-- validate `Next` / `Previous` more broadly
-- optional `FF/REW` seek contract later
-- runtime polish and cleanup
+- non-blocking deprecated fullscreen API cleanup
+- optional Appstore listing assets only if distribution is ever desired
+- routine provider/API compatibility maintenance
 
 ## Important Compliance Notes
 

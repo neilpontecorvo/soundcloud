@@ -129,6 +129,14 @@ adb logcat -v time -s MainActivity PlayerBridge
 - Global Play/Pause behavior is proven on device.
 - Launcher visibility is restored on the Fire TV home screen.
 - Custom TV banner is now visible on the Fire TV home screen.
+- The complete 1920 × 1080 redesign is installed and validated on the AFTKM Fire TV.
+- Home and Library populate their required four rails with real provider content and exact Spotlight selection.
+- Complete paginated Library/Search results remain accessible beyond the first viewport.
+- Playlist and album detail expose complete independently scrolling track lists; selecting any focused row opens and plays that exact track in Player.
+- Player waveform selection, minute-scale held-D-pad scanning, description-panel scrolling, and the header navigation ceiling are physically verified.
+- Public tracks and full-length account-owned private tracks play successfully; a tested private item reports 210,051 ms (3:30), not the provider's 29-second preview.
+- The display remains awake while the app is in use.
+- The final installed APK declares the supplied 1280 × 720 launcher artwork and `SOUNDCLOUD` label; Fire OS cache refresh is pending the user's final restart.
 
 ### Latest device checkpoint
 - Settings confirms:
@@ -164,50 +172,34 @@ This confirms:
 - launcher visibility and banner packaging are resolved
 
 ### Current active issues
-1. **Real provider OAuth/device-pairing is paused**
-   - Backend pairing endpoints and Fire TV LOGIN_REQUIRED primary sign-in UI are implemented.
-   - Repo now has a one-command provider-auth preflight: `npm run preflight:firetv-provider-auth`.
-   - API typecheck/build, Android build, and local pairing-route smoke checks pass.
-   - Latest preflight reaches the Fire TV over LAN/TCP and ADB is authorized: `adb devices` lists `192.168.1.168:5555	device`.
-   - Backend `/health` is reachable on `http://192.168.1.167:4000`, and the rebuilt APK launches to the provider pairing screen on the Fire TV.
-   - A real provider sign-in still needs provider credentials configured in the running backend process and an on-device pairing/callback validation pass.
+1. **Launcher cache refresh pending user restart**
+   - The final APK is installed with the supplied 1280 × 720 artwork mapped as both icon and banner and with launcher label `SOUNDCLOUD`.
+   - APK badging resolves every icon density to `tv_banner.png`; Fire OS still shows its cached prior tile until the planned device restart.
 
-2. **Fast Forward / Rewind unsupported by design**
-   - FF/REW currently do nothing meaningful.
-   - Current implementation intentionally treats them as unsupported no-ops because no reliable seek/jump bridge contract exists yet.
-   - This is expected behavior, not a regression.
-
-3. **Next / Previous should be kept under runtime validation**
-   - Command path exists.
-   - End-to-end behavior should still be confirmed across more than one playable item / queue state.
-
-4. **Cleanup / polish remains**
-   - Manifest/lint cleanup
-   - deprecated API cleanup
-   - UI polish
-   - search UX polish
-   - optional native overlay/player refinement
+2. **Non-blocking maintenance**
+   - Android's legacy fullscreen system-UI flags emit deprecation warnings but compile, lint, and run correctly on the AFTKM target.
+   - An Amazon Appstore-only 1920 × 1080 background image is unnecessary for this private sideloaded app and cannot be injected into the launcher from the APK manifest.
 
 ---
 
 ## 6. Completion Estimate
 ### Internal prototype
-- Overall completion: **97%**
+- Overall completion: **100% for the requested scope**
 
 ### Polished private-use app
-- Overall completion: **86%**
+- Overall completion: **98%**
 
 ### Module estimate
-- Backend/session/auth/content: **92%**
-- TV shell/nav/cards/focus: **92%**
-- Player runtime on physical Fire TV: **96%**
-- Media transport integration: **88%**
-- Launcher/banner packaging: **95%**
-- Final cleanup/polish: **55–65%**
+- Backend/session/auth/content: **99%**
+- TV shell/nav/cards/focus: **99%**
+- Player runtime on physical Fire TV: **99%**
+- Media transport integration: **98%**
+- Launcher/banner packaging: **100% pending cache refresh**
+- Final cleanup/polish: **95%**
 
 ### Estimated time remaining
-- Stable working prototype if scope stays frozen: **0–2 focused hours**
-- Additional polish and cleanup after that: **6–12 hours**
+- Requested implementation: **complete**
+- Optional maintenance/distribution work: **not part of this goal**
 
 ---
 
@@ -221,12 +213,20 @@ This confirms:
 - Session bootstrap/auth/content proxy implemented.
 - Debug auth flow exists for local testing.
 - API checks/build passed.
+- Provider pagination, exact Spotlight normalization, complete collection detail, and full-length private-track stream proxy are implemented server-side.
 
 ### Android / Fire TV
 - Build passes with Gradle.
 - LAN host changed from emulator alias to real Mac IP.
 - Debug cleartext allowed for local testing host only.
 - Home/Search/Library evolved from text panels to usable prototype UI.
+- Home, Library, Search, Playlist/Album Detail, Player, and the mini-player now use the completed 1920 × 1080 reference-frame redesign.
+- Complete Library/Search results and independent horizontal rails are accessible by D-pad.
+- Playlist and album track tables share the same deterministic focus/queue behavior.
+- Focused waveforms support minute-scale D-pad scanning with held-key acceleration; media FF/REW and visible controls use bounded ±10-second seeking.
+- Player description overflow scrolls inside its fixed panel.
+- Account-owned private tracks play at full duration through native Android playback without exposing provider tokens to the device or CDN.
+- The app requests screen-on behavior while in use.
 - Hardened WebView boundary and controlled host approach added.
 - Player lifecycle was reworked to avoid global loading.
 - Player remains idle when opened without selection.
@@ -241,7 +241,7 @@ This confirms:
   - Next
   - Previous
 - Play/Pause interception was moved out of the prior focus-scoped path and is now validated working on device.
-- FF/REW logging path was added as unsupported no-op behavior.
+- FF/REW and focused-waveform seek paths are functional and bounded.
 - Launcher/banner packaging was fixed by removing the conflicting shape wrapper and wiring a real PNG banner.
 - App icon metadata was restored so the launcher tile surfaces correctly.
 - Fire TV home screen now shows the app tile and custom banner.
@@ -249,28 +249,22 @@ This confirms:
 ### Audit results
 - `npm run check:api` passed.
 - `npm --workspace @soundcloud-private/api run build` passed.
-- `npm audit` passed with 0 vulnerabilities.
+- `npm audit` currently reports four pre-existing dependency advisories (one low, three moderate); no task-related package was added.
 - `./gradlew :app:assembleDebug` passed.
+- `./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug` passed.
 - APK badging verified launcher activity, icon, and banner wiring.
 
 ---
 
 ## 8. Remaining Tasks
 ### Critical path
-1. Validate Next/Previous behavior against real queue/list state on device.
-2. Decide whether FF/REW should remain unsupported or gain a real seek/jump contract later.
-3. Fix TV lint manifest issues:
-   - `android.hardware.touchscreen` should be optional
-   - clean debug manifest overlay TV lint behavior
-4. Remove deprecated `saveFormData`.
-5. Clean hardcoded strings / unused resources / low-risk warnings.
+1. No remaining critical-path item for the requested redesign.
+2. Restart the Fire TV once to refresh its cached launcher label/artwork.
 
 ### Secondary tasks
-- Improve Search results experience
-- Native overlay/player polish
-- Better error messaging
+- Replace deprecated fullscreen system-UI flags during a future platform-maintenance pass.
 - Telemetry/crash diagnostics hooks
-- Optional richer queue behavior/state sync refinement
+- Optional Amazon Appstore listing assets only if distribution becomes a future goal.
 
 ---
 
@@ -283,7 +277,7 @@ This confirms:
   - `PlayerBridge`
 - Current local backend should be started from repo root, not home directory.
 - Keep `AGENTS.md` and `.claude/` status in mind if they remain uncommitted.
-- FF/REW are not regressions at this stage; they are intentionally unsupported.
+- FF/REW are functional bounded seek commands; waveform D-pad scanning uses longer minute-scale steps.
 
 ---
 
@@ -302,13 +296,7 @@ This confirms:
 
 ## 11. Current Next Step
 **Single-task focus:**
-Keep Sites migration and real-provider OAuth configuration paused. The local-debug Fire TV experience is the active verified path:
-- run the API with `ENABLE_DEBUG_AUTH=true HOST=0.0.0.0 PORT=4000`
-- local-debug Home, Library, and Search return their fixtures through the normal content endpoints
-- selecting `Local Debug Track` plays Flickermood by Forss
-- session restoration returns to populated Home
-
-Do not begin Sites migration, production OAuth configuration, UI polish, Next/Previous, or FF/REW work without a new scoped task.
+The requested UI implementation goal is complete. After the final commit/push verification, restart the Fire TV once so Fire OS refreshes the installed `SOUNDCLOUD` launcher label and supplied icon/banner from its cache. Future work requires a new scoped task.
 
 ---
 
@@ -1062,3 +1050,142 @@ Expected on-device outcomes:
   - No callback URI, provider credential, provider token, refresh token, pairing code, or session identifier was written to this worklog.
   - No `.env` file, APK, authentication implementation, pairing implementation, playback implementation, WebView hardening, controlled-host rule, or allowlist was changed.
 - Remaining evidence gap: directly inspect the authenticated SoundCloud developer dashboard and compare its registered callback byte-for-byte with the ignored local env value without printing or recording either value.
+
+### Entry 034
+- Status: UI/UX redesign preflight and first implementation pass completed; physical-device visual/runtime iteration in progress.
+- Task title: Implement the New SoundCloud Fire TV UI/UX End-to-End.
+- Active agent: Codex (single coding agent).
+- Approval mode: low-friction/auto-accept for in-scope repository edits and validation.
+- Start time: 2026-07-17 02:55:24 EDT.
+- Branch: `main`.
+- Starting SHA: `da306562d9b2dcf2481548cb1871ec7b70f9476e`.
+- Pre-existing uncommitted changes: none; `git status --short --branch` reported `main...origin/main` with a clean worktree before design assets were copied.
+- Design references found and inspected:
+  - `01 — Home(6).png`
+  - `02 — Library(6).png`
+  - `03 — Playlist detail(6).png`
+  - `04 — Search(7).png`
+  - `05 — Player + queue(9).png`
+  - `SoundCloud Fire TV — UX Redesign(8).fig`
+  - `SoundCloud Fire TV — UX Redesign(6).pdf`
+  - All supplied references were copied without modification into `docs/design/firetv-ux-redesign/`; each PNG is confirmed as 1920 × 1080.
+- Runtime display baseline: Fire TV reports physical size 3840 × 2160, override size 1920 × 1080, and physical density 320. ADB is authorized at `192.168.1.168:5555` after the on-device authorization prompt was accepted.
+- Baseline automated validation:
+  - `npm run check:api`: passed.
+  - `npm --workspace @soundcloud-private/api run build`: passed.
+  - `npm --workspace @soundcloud-private/api test`: passed, 3/3 tests.
+  - `npm test`: not available at repository root (`Missing script: test`); the API workspace test command above is the repository's actual test suite.
+  - `npm audit`: completed with exit 1 due to four pre-existing dependency advisories (one low, three moderate).
+  - Android `./gradlew test`: passed; no Android unit-test sources existed at baseline.
+  - Android `./gradlew lint`: failed at baseline with 5 errors and 35 warnings. The errors are the debug-manifest TV declarations, missing explicit optional touchscreen declaration, and an unguarded API-26 `WebView.getCurrentWebViewPackage()` call.
+  - Android `:app:assembleDebug -PapiBaseUrl=http://192.168.1.167:4000`: passed using pinned OpenJDK 17.0.18.
+- Exact task scope: replace/refactor the native Fire TV presentation layer for Home, Library, Playlist Detail, Search, Player, and the persistent mini-player to match the supplied 1920 × 1080 references; use real normalized provider data/artwork; preserve deterministic D-pad navigation, auth/session behavior, playback, launcher/banner, and hardened controlled-WebView rules; add the smallest required playlist/progress/transport data extensions; validate with automated checks and the final rebuilt/reinstalled APK on the physical Fire TV; capture comparison screenshots; update documentation; commit and push code plus this worklog together.
+- Compaction checkpoint:
+  - Implemented the centralized 1920 × 1080 reference-frame shell, fixed header/mini-player, exact six-column card grid geometry, fixed Search controls/results viewport, real Playlist Detail endpoint/table/queue, native Player waveform/description layout, high-resolution artwork normalization/cache, bounded widget progress reporting, and bounded absolute seek command.
+  - API typecheck passes; API tests pass 4/4, including real-provider playlist normalization and debug-session isolation.
+  - Android unit tests pass for scale, six-column focus mapping, Search normalization, queue bounds, seek clamping, and artwork fallback.
+  - Android lint now passes after fixing the touchscreen declaration and prior unguarded API usage; the debug-overlay-only TV detector false positives are narrowly annotated at the overlay manifest root while the merged manifest retains the real launcher/Leanback declarations.
+  - Android debug assembly passes with pinned OpenJDK 17.0.18 and LAN API base URL.
+  - Live normalized provider validation confirms t500x500 artwork, waveform metadata, real playlist tracks, and a multi-item playlist response; no provider credential or token was printed or moved to Android.
+
+### Entry 035
+- Status: implementation, automated validation, final APK installation, and physical Fire TV validation complete; Git handoff pending at the time this entry was written.
+- Task title: Implement the New SoundCloud Fire TV UI/UX End-to-End.
+- Active agent: Codex (single coding agent).
+- Approval mode: low-friction/auto-accept for in-scope repository edits and validation.
+- Start SHA: `da306562d9b2dcf2481548cb1871ec7b70f9476e`.
+- End/implementation commit SHA: pending final commit creation.
+- Branch: `main`.
+- Design references used: all five 1920 × 1080 PNG exports plus the supplied Figma and PDF under `docs/design/firetv-ux-redesign/`.
+- Implementation summary:
+  - Replaced the presentation layer with a centralized 1920 × 1080 reference-frame shell, fixed five-button header, page-specific nested scroll regions, real-artwork cards, and persistent bottom mini-player.
+  - Home now renders My Feed, More from ANELO, ANELO Spotlight, and Recently Played from normalized provider data; unavailable personalized SoundCloud mixes fall back to more of the account owner's music.
+  - Library now renders the exact five-item Spotlight selection and complete paginated Tracks, Playlists, and Albums rails. Each rail scrolls independently left/right and the main surface moves vertically without crossing the header ceiling.
+  - Search preserves its empty pre-query state, fixed input/action controls, complete paginated results, and deterministic six-column grid navigation.
+  - Added complete real collection detail loading and shared Playlist/Album Detail behavior: fixed artwork/waveform/transport column, independently scrolling track table, explicit high-contrast selected row, exact selected-track activation, active queue construction, and correct `PLAYLIST`/`ALBUM` labeling.
+  - Player now shows real artwork, waveform/progress, scrollable provider description/tracklisting, synchronized mini-player state, visible ±10-second controls, queue Previous/Next, and focused-waveform D-pad scanning by one minute with held-key acceleration.
+  - Added a narrow bounded seek bridge and progress callbacks without broadening the hardened WebView host, navigation allowlist, SSL policy, or JavaScript interface.
+  - Added server-side full-length private-track stream resolution/proxying. Android receives only the backend session ID; provider OAuth is never serialized to Android and is removed before the request reaches SoundCloud media CDN hosts. Range requests are preserved.
+  - Kept the display awake while the private app is in use; the final foreground app window reports `KEEP_SCREEN_ON`.
+  - Replaced the Fire TV launcher icon/banner resources with the user-supplied 1280 × 720 PNG and changed the installed launcher label to `SOUNDCLOUD`.
+- Exact task files changed/added:
+  - `.gitignore`
+  - `README.md`
+  - `WORKLOG.md`
+  - `apps/firetv-client/app/build.gradle.kts`
+  - `apps/firetv-client/app/src/debug/AndroidManifest.xml`
+  - `apps/firetv-client/app/src/main/AndroidManifest.xml`
+  - `apps/firetv-client/app/src/main/java/com/neilpontecorvo/soundcloudfiretv/app/MainActivity.kt`
+  - `apps/firetv-client/app/src/main/java/com/neilpontecorvo/soundcloudfiretv/content/ContentRepository.kt`
+  - `apps/firetv-client/app/src/main/java/com/neilpontecorvo/soundcloudfiretv/core/navigation/AppScreen.kt`
+  - `apps/firetv-client/app/src/main/java/com/neilpontecorvo/soundcloudfiretv/core/navigation/ScreenRenderer.kt`
+  - `apps/firetv-client/app/src/main/java/com/neilpontecorvo/soundcloudfiretv/network/DeviceSessionApiClient.kt`
+  - `apps/firetv-client/app/src/main/java/com/neilpontecorvo/soundcloudfiretv/ui/TvArtworkLoader.kt`
+  - `apps/firetv-client/app/src/main/java/com/neilpontecorvo/soundcloudfiretv/ui/TvDesign.kt`
+  - `apps/firetv-client/app/src/main/java/com/neilpontecorvo/soundcloudfiretv/ui/TvInteractionRules.kt`
+  - `apps/firetv-client/app/src/main/java/com/neilpontecorvo/soundcloudfiretv/ui/TvWaveformView.kt`
+  - `apps/firetv-client/app/src/main/java/com/neilpontecorvo/soundcloudfiretv/webview/PlayerBridge.kt`
+  - `apps/firetv-client/app/src/main/java/com/neilpontecorvo/soundcloudfiretv/webview/WebPlayerHostController.kt`
+  - `apps/firetv-client/app/src/main/res/drawable-nodpi/tv_banner.png`
+  - `apps/firetv-client/app/src/main/res/drawable-xhdpi/tv_banner.png`
+  - `apps/firetv-client/app/src/main/res/layout/activity_main.xml`
+  - `apps/firetv-client/app/src/main/res/values/strings.xml`
+  - `apps/firetv-client/app/src/test/java/com/neilpontecorvo/soundcloudfiretv/ui/TvInteractionRulesTest.kt`
+  - `docs/architecture.md`
+  - `docs/roadmap.md`
+  - all seven supplied reference assets under `docs/design/firetv-ux-redesign/`
+  - `packages/contracts/src/index.ts`
+  - `services/api/src/content/catalog-provider.ts`
+  - `services/api/src/content/track-playback-service.ts`
+  - `services/api/src/provider/provider-config.ts`
+  - `services/api/src/routes/content.ts`
+  - `services/api/test/catalog-provider.test.ts`
+  - `services/api/test/track-playback-service.test.ts`
+- Backend/contract changes:
+  - Added complete playlist-detail response and route, higher-quality artwork/waveform/private metadata, provider pagination helpers, deterministic four-row Home/Library assembly, and exact Spotlight handling.
+  - Added private-track streaming route/service with authenticated provider stream discovery, SoundCloud delivery-host validation, redirect resolution, byte-range proxying, and private/no-store response policy.
+  - Added tests for debug-session isolation, real-provider routing, Home composition, playlist normalization, pagination, private-stream credential stripping, and malicious redirect rejection.
+- Final commands and results:
+  - `npm run check:api`: passed.
+  - `npm --workspace @soundcloud-private/api test`: passed 8/8 tests.
+  - `npm --workspace @soundcloud-private/api run build`: passed.
+  - `npm test`: expected exit 1 because the repository root has no `test` script; the actual API workspace suite above passed.
+  - `npm audit --audit-level=low`: exit 1 for four pre-existing advisories (one low, three moderate); no dependency was added for this task.
+  - `./gradlew test lint :app:assembleDebug -PapiBaseUrl=http://192.168.1.167:4000`: passed with pinned OpenJDK 17.0.18; only legacy fullscreen API deprecation warnings remain.
+  - Final corrective `:app:testDebugUnitTest :app:lintDebug :app:assembleDebug`: passed after proper Album labeling was added.
+  - `curl -fsS http://127.0.0.1:4000/health` and `curl -fsS http://192.168.1.167:4000/health`: both returned service status `ok`.
+  - `adb install -r .../app-debug.apk`: returned `Success` for the final rebuilt APK.
+  - APK badging: application label is `SOUNDCLOUD`; every declared icon density resolves to packaged `tv_banner.png`.
+  - `git diff --check`: passed before handoff review.
+- APK: `apps/firetv-client/app/build/outputs/apk/debug/app-debug.apk`.
+- Fire TV: `192.168.1.168:5555`, model AFTKM, 1920 × 1080 override on a 3840 × 2160 physical display.
+- Physical-device matrix result:
+  - Cold launch/session restore, all header destinations, fixed mini-player, real artwork, Home/Library/Search loading, and header ceiling passed.
+  - Home and Library required rails populate correctly; the user explicitly confirmed these pages and the ceiling behavior.
+  - Complete results extend beyond the first viewport and independent rail movement works.
+  - Playlist test loaded a real 173-track queue; focus visibly moved from row 1 to row 2, and Select opened/played the exact row-2 track.
+  - Album test loaded a real two-track collection, displayed `ALBUM`, moved focus between rows, and opened the exact selected track through the shared queue behavior.
+  - Queue media `NEXT` moved index 1 → 2 and `PREVIOUS` returned 2 → 1; widget ready/play events followed both transitions.
+  - Media FF/REW dispatched functional bounded seek actions; Player/mini-player progress remained synchronized.
+  - Player waveform focus/scanning and internal description scrolling were confirmed working by the user.
+  - A private-track test prepared duration `210051` ms and rendered `3:30`, replacing the earlier 29-second preview response with the full authenticated stream.
+  - Foreground window inspection reports `KEEP_SCREEN_ON`; no screensaver/sleep activation is expected while the app remains in use.
+  - No crash, ANR, focus trap, top-level WebView navigation escape, credential exposure, or debug fixture leak was observed.
+- Screenshot evidence (local and intentionally ignored from Git):
+  - `artifacts/firetv-ui-validation/home-final.png`
+  - `artifacts/firetv-ui-validation/library-nav.png`
+  - `artifacts/firetv-ui-validation/search-empty.png`
+  - `artifacts/firetv-ui-validation/search-results.png`
+  - `artifacts/firetv-ui-validation/playlist-focus-strong-first.png`
+  - `artifacts/firetv-ui-validation/playlist-focus-strong-second.png`
+  - `artifacts/firetv-ui-validation/playlist-second-track-player.png`
+  - `artifacts/firetv-ui-validation/album-detail-labeled-final.png`
+  - `artifacts/firetv-ui-validation/private-track-full-length-playing.png`
+  - `artifacts/firetv-ui-validation/final-transport-validation.png`
+- Known limitations:
+  - Fire OS still shows its cached prior launcher tile until the user restarts the Fire TV; the installed package metadata already resolves to the new icon/banner and `SOUNDCLOUD` label.
+  - Legacy fullscreen flags compile and work on this Fire OS target but remain deprecated for a future platform-maintenance task.
+  - The four npm audit advisories predate this task and require a separately scoped dependency upgrade/regression pass.
+  - Appstore-only background/feature images are irrelevant to this private sideloaded app.
+- Exact next step: finish secret-safe Git review, commit/push/remote verification, then tell the user it is safe to restart the Fire TV to refresh launcher cache.
+- Commit SHA and push verification: pending final Git handoff.

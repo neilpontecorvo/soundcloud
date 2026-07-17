@@ -1,27 +1,28 @@
 package com.neilpontecorvo.soundcloudfiretv.core.navigation
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
-import android.os.Handler
-import android.os.Looper
+import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
-import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.recyclerview.widget.GridLayoutManager
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.neilpontecorvo.soundcloudfiretv.R
-import java.net.URL
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.Executors
+import com.neilpontecorvo.soundcloudfiretv.ui.TvArtworkLoader
+import com.neilpontecorvo.soundcloudfiretv.ui.TvDesign
+import com.neilpontecorvo.soundcloudfiretv.ui.TvDesignMetrics
+import com.neilpontecorvo.soundcloudfiretv.ui.TvInteractionRules
 
 data class ActionSpec(val label: String, val onClick: () -> Unit)
 
@@ -32,7 +33,15 @@ data class ContentCardSpec(
     val subtitle: String,
     val metadata: String? = null,
     val artworkUrl: String? = null,
-    val webUrl: String? = null
+    val webUrl: String? = null,
+    val creatorName: String? = null,
+    val description: String? = null,
+    val creatorAvatarUrl: String? = null,
+    val waveformUrl: String? = null,
+    val durationMs: Long? = null,
+    val trackCount: Int? = null,
+    val isPrivate: Boolean = false,
+    val creatorProfileUrl: String? = null
 )
 
 data class ContentSectionSpec(
@@ -47,9 +56,21 @@ data class ScreenViewModel(
     val contentSections: List<ContentSectionSpec> = emptyList()
 )
 
-/**
- * Callback interface for content card selection events.
- */
+data class GridRenderOptions(
+    val topInset: Int,
+    val verticalGap: Int,
+    val upFocusId: Int = View.NO_ID,
+    val downFocusId: Int = View.NO_ID,
+    val preferredCardId: String? = null,
+    val onCardFocused: (String) -> Unit = {}
+)
+
+data class RenderedGrid(
+    val view: View,
+    val firstFocusableId: Int?,
+    val lastFocusableId: Int?
+)
+
 interface ContentCardSelectionListener {
     fun onCardSelected(card: ContentCardSpec)
     fun onCardSelectedFromSection(card: ContentCardSpec, sectionCards: List<ContentCardSpec>) {
@@ -59,395 +80,557 @@ interface ContentCardSelectionListener {
 
 class ScreenRenderer(
     private val context: Context,
+    private val metrics: TvDesignMetrics,
     private val cardSelectionListener: ContentCardSelectionListener? = null
 ) {
-
-    fun render(model: ScreenViewModel): View {
-        return if (model.contentSections.isNotEmpty()) {
-            renderContentScreen(model)
-        } else {
-            renderPanelScreen(model)
-        }
+    fun render(model: ScreenViewModel): View = if (model.contentSections.isNotEmpty()) {
+        renderGrid(model, GridRenderOptions(topInset = 111, verticalGap = 28)).view
+    } else {
+        renderPanelScreen(model)
     }
 
-    private fun renderContentScreen(model: ScreenViewModel): View {
-        val root = ScrollView(context).apply {
-            isFillViewport = true
-            isVerticalScrollBarEnabled = false
-            setBackgroundColor(Color.TRANSPARENT)
-            clipToPadding = false
-        }
-
-        val container = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            clipToPadding = false
-            clipChildren = false
-            setPadding(0, dp(2), 0, dp(36))
-        }
-        root.addView(container)
-
-        var firstFocusable: View? = null
-        var firstRailScroll: HorizontalScrollView? = null
-
-        model.contentSections.forEach { section ->
-            val sectionView = buildMediaRail(section) { focusable, railScroll ->
-                if (firstFocusable == null) firstFocusable = focusable
-                if (firstRailScroll == null) firstRailScroll = railScroll
-            }
-            container.addView(sectionView)
-        }
-
-        if (model.contentSections.isEmpty() && model.body.isNotBlank()) {
-            val messageView = buildEmptyStateView(model.body)
-            container.addView(messageView)
-        }
-
-        root.post {
-            firstRailScroll?.scrollTo(0, 0)
-            firstFocusable?.requestFocus()
-            firstRailScroll?.postDelayed({
-                firstRailScroll?.scrollTo(0, 0)
-                firstFocusable?.requestFocus()
-            }, 120L)
-        }
-
-        return root
+    fun renderGrid(model: ScreenViewModel, options: GridRenderOptions): RenderedGrid {
+        val cards = model.contentSections
+            .flatMap { it.cards }
+            .distinctBy { "${it.eyebrow.lowercase()}:${it.id}" }
+        return renderGridCells(cards, model.body, options)
     }
 
-    private fun buildMediaRail(
-        section: ContentSectionSpec,
-        onFirstFocusable: (View, HorizontalScrollView) -> Unit
-    ): View {
-        val railContainer = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            clipToPadding = false
-            clipChildren = false
-            setPadding(0, 0, 0, dp(18))
-        }
+    fun renderLibraryRows(model: ScreenViewModel, options: GridRenderOptions): RenderedGrid {
+        val ordered = model.contentSections.filter { it.cards.isNotEmpty() }
+        if (ordered.isEmpty()) return RenderedGrid(buildEmptyStateView(model.body), null, null)
 
-        val titleView = TextView(context).apply {
-            text = section.title
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
-            setPadding(dp(4), dp(14), 0, dp(12))
+        val firstRows = mutableListOf<ContentCardSpec?>()
+        ordered.forEach { section ->
+            val previewCount = if (section.title == "Spotlight") 5 else COLUMN_COUNT
+            firstRows.addAll(section.cards.take(previewCount))
+            while (firstRows.size % COLUMN_COUNT != 0) firstRows.add(null)
         }
-        railContainer.addView(titleView)
-
-        val railScroll = HorizontalScrollView(context).apply {
-            isHorizontalScrollBarEnabled = false
-            clipToPadding = false
-            overScrollMode = View.OVER_SCROLL_NEVER
-            descendantFocusability = android.view.ViewGroup.FOCUS_AFTER_DESCENDANTS
+        val overflow = ordered.flatMap { section ->
+            section.cards.drop(if (section.title == "Spotlight") 5 else COLUMN_COUNT)
         }
-
-        val rail = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            clipToPadding = false
-            clipChildren = false
-            setPadding(dp(8), dp(8), dp(96), dp(16))
-        }
-        railScroll.addView(rail)
-
-        var isFirst = true
-        val cardViews = mutableListOf<View>()
-        section.cards.forEach { card ->
-            val cardView = buildMediaCard(card, section.cards, railScroll)
-            if (isFirst) {
-                onFirstFocusable(cardView, railScroll)
-                isFirst = false
-            }
-            rail.addView(cardView)
-            cardViews.add(cardView)
-        }
-
-        cardViews.forEachIndexed { index, cardView ->
-            cardView.nextFocusLeftId = cardViews.getOrNull(index - 1)?.id ?: cardView.id
-            cardView.nextFocusRightId = cardViews.getOrNull(index + 1)?.id ?: cardView.id
-        }
-
-        railContainer.addView(railScroll)
-        return railContainer
+        return renderGridCells(firstRows + overflow, model.body, options)
     }
 
-    private fun buildMediaCard(
-        card: ContentCardSpec,
-        sectionCards: List<ContentCardSpec> = emptyList(),
-        railScroll: HorizontalScrollView? = null
-    ): View {
-        val cardWidth = dp(260)
-        val cardHeight = dp(250)
-        val artworkHeight = dp(156)
+    private fun renderGridCells(
+        cards: List<ContentCardSpec?>,
+        emptyMessage: String,
+        options: GridRenderOptions
+    ): RenderedGrid {
+        if (cards.none { it != null }) {
+            return RenderedGrid(buildEmptyStateView(emptyMessage), null, null)
+        }
 
-        val cardRoot = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
+        val layoutManager = GridLayoutManager(context, COLUMN_COUNT)
+        val adapter = MediaGridAdapter(cards, options)
+        val grid = RecyclerView(context).apply {
             id = View.generateViewId()
+            this.layoutManager = layoutManager
+            this.adapter = adapter
+            isFocusable = false
+            isFocusableInTouchMode = false
+            descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+            isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            clipToPadding = false
+            clipChildren = false
+            itemAnimator = null
+            setHasFixedSize(true)
+            setItemViewCacheSize(COLUMN_COUNT * 3)
+            setPadding(
+                metrics.px(63),
+                metrics.px(options.topInset),
+                metrics.px(45),
+                metrics.px(25)
+            )
+            setBackgroundColor(Color.TRANSPARENT)
+        }
+
+        val preferredIndex = cards.indexOfFirst { it?.id == options.preferredCardId }
+            .takeIf { it >= 0 }
+            ?: cards.indexOfFirst { it != null }
+        grid.post {
+            if (preferredIndex > 0) layoutManager.scrollToPositionWithOffset(preferredIndex, 0)
+            grid.post { grid.findViewHolderForAdapterPosition(preferredIndex)?.itemView?.requestFocus() }
+        }
+        return RenderedGrid(grid, adapter.firstViewId, adapter.lastViewId)
+    }
+
+    fun renderSectionRails(model: ScreenViewModel, options: GridRenderOptions): RenderedGrid {
+        val sections = model.contentSections
+            .map { section ->
+                section.copy(cards = section.cards.distinctBy { "${it.eyebrow.lowercase()}:${it.id}" })
+            }
+            .filter { it.cards.isNotEmpty() }
+        if (sections.isEmpty()) {
+            return RenderedGrid(buildEmptyStateView(model.body), null, null)
+        }
+
+        val verticalScroll = ScrollView(context).apply {
+            isFillViewport = true
+            isFocusable = false
+            isFocusableInTouchMode = false
+            descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+            isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            clipChildren = true
+            setBackgroundColor(Color.TRANSPARENT)
+        }
+        val rows = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, metrics.px(options.topInset), 0, metrics.px(25))
+        }
+        verticalScroll.addView(rows, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        ))
+
+        val adapters = mutableListOf<MediaRailAdapter>()
+        sections.forEachIndexed { railIndex, section ->
+            val layoutManager = LinearLayoutManager(context, RecyclerView.HORIZONTAL, false)
+            val adapter = MediaRailAdapter(section.title, section.cards, options) { sourcePosition, delta ->
+                val targetRail = railIndex + delta
+                if (targetRail in adapters.indices) {
+                    val target = adapters[targetRail]
+                    val targetPosition = target.lastFocusedPosition
+                        .takeIf { it >= 0 }
+                        ?: sourcePosition.coerceIn(0, target.itemCount - 1)
+                    target.requestCardFocus(targetPosition)
+                } else {
+                    val externalId = if (delta < 0) options.upFocusId else options.downFocusId
+                    if (externalId != View.NO_ID) {
+                        verticalScroll.rootView.findViewById<View>(externalId)?.requestFocus()
+                    }
+                }
+            }
+            adapters.add(adapter)
+            val rail = RecyclerView(context).apply {
+                id = View.generateViewId()
+                this.layoutManager = layoutManager
+                this.adapter = adapter
+                isFocusable = false
+                isFocusableInTouchMode = false
+                descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+                isHorizontalScrollBarEnabled = false
+                overScrollMode = View.OVER_SCROLL_NEVER
+                clipToPadding = true
+                itemAnimator = null
+                setHasFixedSize(true)
+                setItemViewCacheSize(COLUMN_COUNT + 2)
+                setPadding(metrics.px(63), 0, metrics.px(45), 0)
+                setBackgroundColor(Color.TRANSPARENT)
+            }
+            val sectionBlock = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(text(section.title, 20f, TvDesign.TEXT, bold = true), LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    metrics.px(28)
+                ).apply {
+                    marginStart = metrics.px(63)
+                    marginEnd = metrics.px(45)
+                    bottomMargin = metrics.px(8)
+                })
+                addView(rail, LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    metrics.px(232)
+                ))
+            }
+            rows.addView(sectionBlock, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                if (railIndex < sections.lastIndex) bottomMargin = metrics.px(options.verticalGap)
+            })
+        }
+
+        var preferredRail = 0
+        var preferredPosition = 0
+        var preferredFound = false
+        options.preferredCardId?.let { preferredId ->
+            sections.forEachIndexed { sectionIndex, section ->
+                if (preferredFound) return@forEachIndexed
+                val itemIndex = section.cards.indexOfFirst { card ->
+                    card.id == preferredId || railFocusKey(section.title, card.id) == preferredId
+                }
+                if (itemIndex >= 0 && !preferredFound) {
+                    preferredRail = sectionIndex
+                    preferredPosition = itemIndex
+                    preferredFound = true
+                }
+            }
+        }
+        verticalScroll.post { adapters[preferredRail].requestCardFocus(preferredPosition) }
+        return RenderedGrid(verticalScroll, adapters.first().firstViewId, adapters.last().lastViewId)
+    }
+
+    fun renderHomeRows(model: ScreenViewModel, options: GridRenderOptions): RenderedGrid {
+        val ordered = model.contentSections.filter { it.cards.isNotEmpty() }
+        if (ordered.isEmpty()) return RenderedGrid(buildEmptyStateView(model.body), null, null)
+
+        val firstRows = ordered.map { section ->
+            section.copy(cards = section.cards.take(if (section.title == "Spotlight") 5 else COLUMN_COUNT))
+        }
+        val overflow = ordered.flatMap { section ->
+            section.cards.drop(if (section.title == "Spotlight") 5 else COLUMN_COUNT)
+        }
+        val overflowRows = overflow.chunked(COLUMN_COUNT).mapIndexed { index, cards ->
+            ContentSectionSpec("More ${index + 1}", cards)
+        }
+        return renderSectionRails(
+            model.copy(contentSections = firstRows + overflowRows),
+            options
+        )
+    }
+
+    private inner class MediaRailAdapter(
+        private val sectionTitle: String,
+        private val cards: List<ContentCardSpec>,
+        private val options: GridRenderOptions,
+        private val onVerticalMove: (position: Int, delta: Int) -> Unit
+    ) : RecyclerView.Adapter<MediaCardHolder>() {
+        private val viewIds = IntArray(cards.size) { View.generateViewId() }
+        private lateinit var recyclerView: RecyclerView
+        var lastFocusedPosition: Int = -1
+            private set
+
+        val firstViewId: Int get() = viewIds.first()
+        val lastViewId: Int get() = viewIds.last()
+
+        init {
+            setHasStableIds(true)
+        }
+
+        override fun getItemCount(): Int = cards.size
+
+        override fun getItemId(position: Int): Long =
+            (cards[position].id.hashCode().toLong() shl 32) xor position.toLong()
+
+        override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+            this.recyclerView = recyclerView
+        }
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): MediaCardHolder =
+            createMediaCardHolder()
+
+        override fun onBindViewHolder(holder: MediaCardHolder, position: Int) {
+            val card = cards[position]
+            holder.root.id = viewIds[position]
+            holder.root.background = cardBackground(holder.root.hasFocus())
+            holder.root.contentDescription = listOf(card.eyebrow, card.title, card.creatorName ?: card.subtitle)
+                .filter { it.isNotBlank() }
+                .joinToString(", ")
+            holder.eyebrow.text = card.eyebrow.uppercase()
+            holder.title.text = card.title
+            holder.creator.text = card.creatorName ?: card.subtitle
+            holder.root.setOnClickListener { cardSelectionListener?.onCardSelectedFromSection(card, cards) }
+            holder.root.setOnFocusChangeListener { view, hasFocus ->
+                view.background = cardBackground(hasFocus)
+                if (hasFocus) {
+                    lastFocusedPosition = holder.bindingAdapterPosition
+                    options.onCardFocused(railFocusKey(sectionTitle, card.id))
+                }
+            }
+            holder.root.setOnKeyListener { _, keyCode, event ->
+                if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
+                val current = holder.bindingAdapterPosition
+                when (keyCode) {
+                    KeyEvent.KEYCODE_DPAD_LEFT -> requestCardFocus((current - 1).coerceAtLeast(0))
+                    KeyEvent.KEYCODE_DPAD_RIGHT -> requestCardFocus((current + 1).coerceAtMost(cards.lastIndex))
+                    KeyEvent.KEYCODE_DPAD_UP -> onVerticalMove(current, -1)
+                    KeyEvent.KEYCODE_DPAD_DOWN -> onVerticalMove(current, 1)
+                    else -> return@setOnKeyListener false
+                }
+                true
+            }
+            holder.root.layoutParams = RecyclerView.LayoutParams(metrics.px(284), metrics.px(232)).apply {
+                marginEnd = metrics.px(18)
+            }
+            TvArtworkLoader.load(
+                context,
+                TvInteractionRules.artworkCandidate(card.artworkUrl, card.creatorAvatarUrl),
+                holder.artwork,
+                metrics.px(260),
+                metrics.px(152)
+            )
+        }
+
+        override fun onViewRecycled(holder: MediaCardHolder) {
+            holder.artwork.tag = null
+            holder.artwork.setImageDrawable(null)
+            super.onViewRecycled(holder)
+        }
+
+        fun requestCardFocus(position: Int) {
+            val safePosition = position.coerceIn(0, cards.lastIndex)
+            recyclerView.findViewHolderForAdapterPosition(safePosition)?.itemView?.let { visible ->
+                visible.requestFocus()
+                return
+            }
+            recyclerView.scrollToPosition(safePosition)
+            recyclerView.post {
+                recyclerView.findViewHolderForAdapterPosition(safePosition)?.itemView?.requestFocus()
+                    ?: recyclerView.post {
+                        recyclerView.findViewHolderForAdapterPosition(safePosition)?.itemView?.requestFocus()
+                    }
+            }
+        }
+    }
+
+    private inner class MediaGridAdapter(
+        private val cards: List<ContentCardSpec?>,
+        private val options: GridRenderOptions
+    ) : RecyclerView.Adapter<MediaCardHolder>() {
+        private val viewIds = IntArray(cards.size) { View.generateViewId() }
+        private lateinit var recyclerView: RecyclerView
+
+        val firstViewId: Int get() = viewIds[cards.indexOfFirst { it != null }]
+        val lastViewId: Int get() = viewIds[cards.indexOfLast { it != null }]
+
+        init {
+            setHasStableIds(true)
+        }
+
+        override fun getItemCount(): Int = cards.size
+
+        override fun getItemId(position: Int): Long {
+            val card = cards[position] ?: return Long.MIN_VALUE + position
+            return (card.id.hashCode().toLong() shl 32) xor position.toLong()
+        }
+
+        override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+            this.recyclerView = recyclerView
+        }
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): MediaCardHolder =
+            createMediaCardHolder()
+
+        override fun onBindViewHolder(holder: MediaCardHolder, position: Int) {
+            val card = cards[position]
+            holder.root.id = viewIds[position]
+            holder.root.layoutParams = RecyclerView.LayoutParams(metrics.px(284), metrics.px(232)).apply {
+                marginEnd = metrics.px(18)
+                bottomMargin = metrics.px(options.verticalGap)
+            }
+            if (card == null) {
+                holder.root.visibility = View.INVISIBLE
+                holder.root.isFocusable = false
+                holder.root.isClickable = false
+                holder.root.setOnClickListener(null)
+                holder.root.setOnKeyListener(null)
+                holder.artwork.tag = null
+                holder.artwork.setImageDrawable(null)
+                return
+            }
+            holder.root.visibility = View.VISIBLE
+            holder.root.isFocusable = true
+            holder.root.isFocusableInTouchMode = true
+            holder.root.isClickable = true
+            holder.root.background = cardBackground(holder.root.hasFocus())
+            holder.root.contentDescription = listOf(card.eyebrow, card.title, card.creatorName ?: card.subtitle)
+                .filter { it.isNotBlank() }
+                .joinToString(", ")
+            holder.eyebrow.text = card.eyebrow.uppercase()
+            holder.title.text = card.title
+            holder.creator.text = card.creatorName ?: card.subtitle
+            holder.root.setOnClickListener {
+                cardSelectionListener?.onCardSelectedFromSection(card, cards.filterNotNull())
+            }
+            holder.root.setOnFocusChangeListener { view, hasFocus ->
+                view.background = cardBackground(hasFocus)
+                if (hasFocus) options.onCardFocused(card.id)
+            }
+            holder.root.setOnKeyListener { _, keyCode, event ->
+                if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
+                val direction = when (keyCode) {
+                    KeyEvent.KEYCODE_DPAD_LEFT -> TvInteractionRules.GridDirection.LEFT
+                    KeyEvent.KEYCODE_DPAD_RIGHT -> TvInteractionRules.GridDirection.RIGHT
+                    KeyEvent.KEYCODE_DPAD_UP -> TvInteractionRules.GridDirection.UP
+                    KeyEvent.KEYCODE_DPAD_DOWN -> TvInteractionRules.GridDirection.DOWN
+                    else -> return@setOnKeyListener false
+                }
+                moveFocus(holder.bindingAdapterPosition, direction)
+            }
+            TvArtworkLoader.load(
+                context,
+                TvInteractionRules.artworkCandidate(card.artworkUrl, card.creatorAvatarUrl),
+                holder.artwork,
+                metrics.px(260),
+                metrics.px(152)
+            )
+        }
+
+        override fun onViewRecycled(holder: MediaCardHolder) {
+            holder.artwork.tag = null
+            holder.artwork.setImageDrawable(null)
+            super.onViewRecycled(holder)
+        }
+
+        private fun moveFocus(position: Int, direction: TvInteractionRules.GridDirection): Boolean {
+            if (position !in cards.indices) return false
+            val target = gridNeighborSkippingSpacers(position, direction)
+            if (target != null) {
+                requestCardFocus(target)
+                return true
+            }
+
+            val externalId = when (direction) {
+                TvInteractionRules.GridDirection.UP -> options.upFocusId
+                TvInteractionRules.GridDirection.DOWN -> options.downFocusId
+                TvInteractionRules.GridDirection.LEFT,
+                TvInteractionRules.GridDirection.RIGHT -> View.NO_ID
+            }
+            if (externalId != View.NO_ID) {
+                recyclerView.rootView.findViewById<View>(externalId)?.requestFocus()
+            }
+            return true
+        }
+
+        private fun requestCardFocus(position: Int) {
+            if (cards.getOrNull(position) == null) return
+            recyclerView.findViewHolderForAdapterPosition(position)?.itemView?.let { visible ->
+                visible.requestFocus()
+                return
+            }
+            recyclerView.scrollToPosition(position)
+            recyclerView.post {
+                recyclerView.findViewHolderForAdapterPosition(position)?.itemView?.requestFocus()
+                    ?: recyclerView.post {
+                        recyclerView.findViewHolderForAdapterPosition(position)?.itemView?.requestFocus()
+                    }
+            }
+        }
+
+        private fun gridNeighborSkippingSpacers(
+            position: Int,
+            direction: TvInteractionRules.GridDirection
+        ): Int? {
+            val direct = TvInteractionRules.gridNeighbor(position, direction, cards.size) ?: return null
+            if (cards[direct] != null) return direct
+            if (direction != TvInteractionRules.GridDirection.UP &&
+                direction != TvInteractionRules.GridDirection.DOWN
+            ) return null
+
+            val rowStart = (direct / COLUMN_COUNT) * COLUMN_COUNT
+            val rowEnd = minOf(rowStart + COLUMN_COUNT, cards.size)
+            val column = position % COLUMN_COUNT
+            return (0 until COLUMN_COUNT)
+                .flatMap { distance -> listOf(column - distance, column + distance) }
+                .distinct()
+                .map { rowStart + it }
+                .firstOrNull { it in rowStart until rowEnd && cards[it] != null }
+        }
+    }
+
+    private fun createMediaCardHolder(): MediaCardHolder {
+        val cardRoot = FrameLayout(context).apply {
             isFocusable = true
             isFocusableInTouchMode = true
             isClickable = true
-            setBackgroundResource(R.drawable.tv_media_card_background)
-            clipToPadding = false
-            clipChildren = false
-            layoutParams = LinearLayout.LayoutParams(cardWidth, cardHeight).apply {
-                rightMargin = dp(22)
-            }
-            setOnClickListener {
-                cardSelectionListener?.onCardSelectedFromSection(card, sectionCards)
-            }
+            background = cardBackground(focused = false)
         }
 
-        val artworkContainer = FrameLayout(context).apply {
-            setBackgroundResource(R.drawable.artwork_placeholder)
-            clipToPadding = false
-            clipChildren = false
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                artworkHeight
-            )
-        }
-
-        val artworkView = ImageView(context).apply {
+        val artwork = ImageView(context).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
-            alpha = 0.92f
-            layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            )
-        }
-        artworkContainer.addView(artworkView)
-        ArtworkLoader.load(card.artworkUrl, artworkView)
-
-        val orangeWash = View(context).apply {
-            alpha = 0f
-            setBackgroundColor(0x33FF5500)
-            layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            )
-        }
-        artworkContainer.addView(orangeWash)
-
-        val eyebrowBadge = TextView(context).apply {
-            text = card.eyebrow.uppercase().ifBlank { "TRACK" }
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
-            setBackgroundColor(0xCC000000.toInt())
-            setPadding(dp(8), dp(4), dp(8), dp(4))
-            layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                gravity = Gravity.BOTTOM or Gravity.START
-                marginStart = dp(8)
-                bottomMargin = dp(8)
+            layoutParams = FrameLayout.LayoutParams(metrics.px(260), metrics.px(152)).apply {
+                leftMargin = metrics.px(12)
+                topMargin = metrics.px(12)
             }
         }
-        artworkContainer.addView(eyebrowBadge)
+        cardRoot.addView(artwork)
 
-        val cursorBadge = TextView(context).apply {
-            text = ">"
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
-            alpha = 0f
-            visibility = View.INVISIBLE
-            background = ovalDrawable(0xFFFF5500.toInt())
-            layoutParams = FrameLayout.LayoutParams(dp(42), dp(42)).apply {
-                gravity = Gravity.TOP or Gravity.END
-                topMargin = dp(12)
-                marginEnd = dp(12)
-            }
-            elevation = dp(12).toFloat()
-        }
-        artworkContainer.addView(cursorBadge)
-        cardRoot.addView(artworkContainer)
-
-        val textContainer = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(12), dp(14), dp(10))
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                0,
-                1f
-            )
-        }
-
-        val titleView = TextView(context).apply {
-            text = card.title
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
-            maxLines = 2
-            ellipsize = android.text.TextUtils.TruncateAt.END
-        }
-        textContainer.addView(titleView)
-
-        val subtitleView = TextView(context).apply {
-            text = card.subtitle
-            setTextColor(0xFFAAAAAA.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
+        val eyebrow = text("", 10f, TvDesign.ORANGE, bold = true).apply {
             maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
-            setPadding(0, dp(4), 0, 0)
-        }
-        textContainer.addView(subtitleView)
-
-        if (!card.metadata.isNullOrBlank()) {
-            val metaView = TextView(context).apply {
-                text = card.metadata
-                setTextColor(0xFFFF5500.toInt())
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-                maxLines = 1
-                setPadding(0, dp(4), 0, 0)
+            layoutParams = FrameLayout.LayoutParams(metrics.px(260), metrics.px(15)).apply {
+                leftMargin = metrics.px(12)
+                topMargin = metrics.px(170)
             }
-            textContainer.addView(metaView)
         }
-
-        cardRoot.addView(textContainer)
-
-        TvFocusStyler.apply(cardRoot, focusedScale = 1.08f, onFocusChanged = { hasFocus ->
-            if (hasFocus) {
-                cursorBadge.visibility = View.VISIBLE
-                cursorBadge.animate()
-                    .alpha(1f)
-                    .translationY(0f)
-                    .setDuration(120L)
-                    .start()
-                orangeWash.animate()
-                    .alpha(1f)
-                    .setDuration(120L)
-                    .start()
-                railScroll?.post {
-                    val viewportPadding = dp(8)
-                    val targetX = (cardRoot.left - viewportPadding).coerceAtLeast(0)
-                    if (kotlin.math.abs(railScroll.scrollX - targetX) > dp(12)) {
-                        railScroll.smoothScrollTo(targetX, 0)
-                    }
-                }
-            } else {
-                cursorBadge.animate()
-                    .alpha(0f)
-                    .translationY(dp(4).toFloat())
-                    .setDuration(90L)
-                    .withEndAction { cursorBadge.visibility = View.INVISIBLE }
-                    .start()
-                orangeWash.animate()
-                    .alpha(0f)
-                    .setDuration(90L)
-                    .start()
+        cardRoot.addView(eyebrow)
+        val title = text("", 16f, TvDesign.TEXT, bold = true).apply {
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            layoutParams = FrameLayout.LayoutParams(metrics.px(260), metrics.px(22)).apply {
+                leftMargin = metrics.px(12)
+                topMargin = metrics.px(186)
             }
-        })
-
-        return cardRoot
+        }
+        cardRoot.addView(title)
+        val creator = text("", 13f, TvDesign.DIM).apply {
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            layoutParams = FrameLayout.LayoutParams(metrics.px(260), metrics.px(18)).apply {
+                leftMargin = metrics.px(12)
+                topMargin = metrics.px(210)
+            }
+        }
+        cardRoot.addView(creator)
+        return MediaCardHolder(cardRoot, artwork, eyebrow, title, creator)
     }
 
-    private fun buildEmptyStateView(message: String): View {
-        return LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(dp(48), dp(80), dp(48), dp(80))
+    private class MediaCardHolder(
+        val root: FrameLayout,
+        val artwork: ImageView,
+        val eyebrow: TextView,
+        val title: TextView,
+        val creator: TextView
+    ) : RecyclerView.ViewHolder(root)
 
-            val messageView = TextView(context).apply {
-                text = message
-                setTextColor(0xFF888888.toInt())
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-                gravity = Gravity.CENTER
-            }
-            addView(messageView)
-        }
+    private fun buildEmptyStateView(message: String): View = FrameLayout(context).apply {
+        addView(text(message.ifBlank { "No content available" }, 18f, TvDesign.MUTED).apply {
+            gravity = Gravity.CENTER
+        }, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        ))
     }
 
     private fun renderPanelScreen(model: ScreenViewModel): View {
-        val root = LayoutInflater.from(context).inflate(R.layout.view_panel, null)
-        root.findViewById<TextView>(R.id.panelTitle).apply {
-            text = model.title
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
-        }
+        val root = LayoutInflater.from(context).inflate(R.layout.view_panel, FrameLayout(context), false)
+        root.findViewById<TextView>(R.id.panelTitle).text = model.title
         root.findViewById<TextView>(R.id.panelBody).apply {
             text = model.body
             visibility = if (model.body.isBlank()) View.GONE else View.VISIBLE
         }
-
-        var firstFocusable: View? = null
-
         val actionsContainer = root.findViewById<LinearLayout>(R.id.panelActions)
+        var first: View? = null
         model.actions.forEach { spec ->
             val button = Button(context).apply {
                 text = spec.label
-                setOnClickListener { spec.onClick.invoke() }
+                setOnClickListener { spec.onClick() }
                 isFocusable = true
                 isFocusableInTouchMode = true
-                isClickable = true
-                setTextColor(Color.WHITE)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-                setBackgroundResource(R.drawable.tv_focusable_background)
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    dp(40)
-                ).apply {
-                    marginEnd = dp(12)
-                }
-                setPadding(dp(16), 0, dp(16), 0)
-                minWidth = dp(100)
-                minHeight = dp(40)
+                setTextColor(TvDesign.TEXT)
+                background = TvDesign.rounded(TvDesign.SURFACE_RAISED, metrics.px(8), metrics.px(2), TvDesign.BORDER)
+                minWidth = metrics.px(140)
+                minHeight = metrics.px(52)
+                setTextSize(TypedValue.COMPLEX_UNIT_PX, metrics.textPx(15f))
             }
-            TvFocusStyler.apply(button, focusedScale = 1.08f)
-            if (firstFocusable == null) firstFocusable = button
+            if (first == null) first = button
             actionsContainer.addView(button)
         }
-
-        root.post {
-            firstFocusable?.requestFocus()
-        }
-
+        root.post { first?.requestFocus() }
         return root
     }
 
-    private fun dp(value: Int): Int = TypedValue.applyDimension(
-        TypedValue.COMPLEX_UNIT_DIP,
-        value.toFloat(),
-        context.resources.displayMetrics
-    ).toInt()
-
-    private fun ovalDrawable(color: Int): GradientDrawable = GradientDrawable().apply {
-        shape = GradientDrawable.OVAL
-        setColor(color)
-        setStroke(dp(2), 0xFFFFFFFF.toInt())
+    private fun text(value: String, size: Float, color: Int, bold: Boolean = false): TextView = TextView(context).apply {
+        text = value
+        setTextColor(color)
+        setTextSize(TypedValue.COMPLEX_UNIT_PX, metrics.textPx(size))
+        includeFontPadding = false
+        if (bold) setTypeface(typeface, android.graphics.Typeface.BOLD)
     }
-}
 
-private object ArtworkLoader {
-    private val executor = Executors.newFixedThreadPool(3)
-    private val mainHandler = Handler(Looper.getMainLooper())
-    private val cache = ConcurrentHashMap<String, Bitmap>()
+    private fun cardBackground(focused: Boolean) = TvDesign.rounded(
+        fill = TvDesign.SURFACE,
+        radiusPx = metrics.px(11),
+        strokeWidthPx = metrics.px(if (focused) 4 else 1),
+        stroke = if (focused) TvDesign.YELLOW else TvDesign.BORDER
+    )
 
-    fun load(url: String?, target: ImageView) {
-        target.setImageDrawable(null)
-        target.tag = null
-        val normalizedUrl = url?.takeIf { it.startsWith("https://") || it.startsWith("http://") } ?: return
-        cache[normalizedUrl]?.let { cached ->
-            target.setImageBitmap(cached)
-            return
-        }
+    companion object {
+        const val COLUMN_COUNT = 6
 
-        target.tag = normalizedUrl
-        executor.execute {
-            val bitmap = runCatching {
-                val connection = URL(normalizedUrl).openConnection()
-                connection.connectTimeout = 4000
-                connection.readTimeout = 4000
-                connection.getInputStream().use { stream ->
-                    BitmapFactory.decodeStream(stream)
-                }
-            }.getOrNull() ?: return@execute
-
-            cache[normalizedUrl] = bitmap
-            mainHandler.post {
-                if (target.tag == normalizedUrl) {
-                    target.setImageBitmap(bitmap)
-                }
-            }
-        }
+        private fun railFocusKey(sectionTitle: String, cardId: String): String =
+            "${sectionTitle.length}:$sectionTitle:$cardId"
     }
 }

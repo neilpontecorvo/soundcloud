@@ -1,77 +1,41 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/rootContainer"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:background="#030303"
-    android:paddingStart="32dp"
-    android:paddingEnd="32dp"
-    android:paddingTop="24dp"
-    android:paddingBottom="16dp">
+    android:background="#000000"
+    android:clipChildren="false"
+    android:clipToPadding="false">
 
-    <!-- Header Row: Logo/Title + Nav -->
-    <LinearLayout
+    <FrameLayout
+        android:id="@+id/headerFrame"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:layout_marginBottom="16dp">
+        android:background="#000000" />
 
-        <!-- App title / branding area -->
-        <TextView
-            android:id="@+id/screenTitle"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:textColor="#FFFFFF"
-            android:textSize="24sp"
-            android:textStyle="bold"
-            android:text="ANELO ON SOUNDCLOUD"
-            android:letterSpacing="0.02" />
-
-        <!-- Navigation bar -->
-        <LinearLayout
-            android:id="@+id/navRow"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:background="#111111"
-            android:padding="4dp">
-
-            <Button
-                android:id="@+id/btnHome"
-                style="@style/TvNavButton"
-                android:text="Home" />
-
-            <Button
-                android:id="@+id/btnSearch"
-                style="@style/TvNavButton"
-                android:text="Search" />
-
-            <Button
-                android:id="@+id/btnLibrary"
-                style="@style/TvNavButton"
-                android:text="Library" />
-
-            <Button
-                android:id="@+id/btnPlayer"
-                style="@style/TvNavButton"
-                android:text="Player" />
-
-            <Button
-                android:id="@+id/btnSettings"
-                style="@style/TvNavButton"
-                android:text="Settings" />
-        </LinearLayout>
-    </LinearLayout>
-
-    <!-- Content area -->
     <FrameLayout
         android:id="@+id/contentFrame"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:background="#030303" />
+        android:layout_height="match_parent"
+        android:background="#000000"
+        android:clipChildren="true"
+        android:clipToPadding="true" />
 
-</LinearLayout>
+    <FrameLayout
+        android:id="@+id/miniPlayerFrame"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#080808"
+        android:clipChildren="false"
+        android:clipToPadding="false" />
+
+    <!-- The controlled player is attached only after a playable selection.
+         It remains a tiny native-owned host so audio survives screen browsing. -->
+    <FrameLayout
+        android:id="@+id/playerHostFrame"
+        android:layout_width="1px"
+        android:layout_height="1px"
+        android:alpha="0.01"
+        android:importantForAccessibility="noHideDescendants" />
+
+</FrameLayout>

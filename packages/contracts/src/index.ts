@@ -44,7 +44,7 @@ export interface ApiError {
 }
 
 export type CacheStatus = 'hit' | 'miss' | 'bypass';
-export type MediaKind = 'track' | 'playlist' | 'station';
+export type MediaKind = 'track' | 'playlist' | 'station' | 'artist';
 
 export interface MediaCard {
   id: string;
@@ -52,15 +52,36 @@ export interface MediaCard {
   title: string;
   subtitle?: string;
   creatorName?: string;
+  creatorAvatarUrl?: string | null;
   artworkUrl?: string | null;
+  description?: string | null;
+  waveformUrl?: string | null;
+  durationMs?: number | null;
   durationText?: string | null;
+  trackCount?: number | null;
   webUrl?: string | null;
+  isPrivate?: boolean;
+  creatorProfileUrl?: string | null;
+}
+
+export interface PlaylistDetail {
+  id: string;
+  title: string;
+  creatorName?: string;
+  artworkUrl?: string | null;
+  description?: string | null;
+  durationMs?: number | null;
+  durationText?: string | null;
+  trackCount: number;
+  webUrl?: string | null;
+  tracks: MediaCard[];
 }
 
 export interface FeedResponse {
   generatedAtIso: string;
   cacheStatus?: CacheStatus;
   items: MediaCard[];
+  sections?: LibrarySection[];
 }
 
 export interface SearchRequest {

@@ -30,9 +30,29 @@ data class MediaCardDto(
     val title: String,
     val subtitle: String?,
     val creatorName: String?,
+    val creatorAvatarUrl: String?,
     val artworkUrl: String?,
+    val description: String?,
+    val waveformUrl: String?,
+    val durationMs: Long?,
     val durationText: String?,
-    val webUrl: String?
+    val trackCount: Int?,
+    val webUrl: String?,
+    val isPrivate: Boolean,
+    val creatorProfileUrl: String?
+)
+
+data class PlaylistDetailDto(
+    val id: String,
+    val title: String,
+    val creatorName: String?,
+    val artworkUrl: String?,
+    val description: String?,
+    val durationMs: Long?,
+    val durationText: String?,
+    val trackCount: Int,
+    val webUrl: String?,
+    val tracks: List<MediaCardDto>
 )
 
 data class FeedResponseDto(
@@ -127,6 +147,15 @@ class DeviceSessionApiClient(private val baseUrl: String) {
 
     fun getLibrary(sessionId: String): LibraryResponseDto {
         return request("GET", "/v1/library", null, sessionHeaders(sessionId)).toLibraryResponseDto()
+    }
+
+    fun getPlaylistDetail(sessionId: String, playlistId: String): PlaylistDetailDto {
+        return request(
+            "GET",
+            "/v1/playlists/${playlistId.urlEncode()}",
+            null,
+            sessionHeaders(sessionId)
+        ).toPlaylistDetailDto()
     }
 
     private fun request(
@@ -225,6 +254,19 @@ class DeviceSessionApiClient(private val baseUrl: String) {
         return sections
     }
 
+    private fun JSONObject.toPlaylistDetailDto(): PlaylistDetailDto = PlaylistDetailDto(
+        id = optString("id"),
+        title = optString("title", "Playlist"),
+        creatorName = optNullableString("creatorName"),
+        artworkUrl = optNullableString("artworkUrl"),
+        description = optNullableString("description"),
+        durationMs = optNullableLong("durationMs"),
+        durationText = optNullableString("durationText"),
+        trackCount = optInt("trackCount", 0),
+        webUrl = optNullableString("webUrl"),
+        tracks = optJSONArray("tracks").toMediaCards()
+    )
+
     private fun org.json.JSONArray?.toMediaCards(): List<MediaCardDto> {
         val items = mutableListOf<MediaCardDto>()
         if (this == null) return items
@@ -238,9 +280,16 @@ class DeviceSessionApiClient(private val baseUrl: String) {
                     title = item.optString("title"),
                     subtitle = item.optNullableString("subtitle"),
                     creatorName = item.optNullableString("creatorName"),
+                    creatorAvatarUrl = item.optNullableString("creatorAvatarUrl"),
                     artworkUrl = item.optNullableString("artworkUrl"),
+                    description = item.optNullableString("description"),
+                    waveformUrl = item.optNullableString("waveformUrl"),
+                    durationMs = item.optNullableLong("durationMs"),
                     durationText = item.optNullableString("durationText"),
-                    webUrl = item.optNullableString("webUrl")
+                    trackCount = item.optNullableInt("trackCount"),
+                    webUrl = item.optNullableString("webUrl"),
+                    isPrivate = item.optBoolean("isPrivate", false),
+                    creatorProfileUrl = item.optNullableString("creatorProfileUrl")
                 )
             )
         }
@@ -251,6 +300,16 @@ class DeviceSessionApiClient(private val baseUrl: String) {
     private fun JSONObject.optNullableString(name: String): String? {
         if (!has(name) || isNull(name)) return null
         return optString(name).takeIf { it.isNotBlank() }
+    }
+
+    private fun JSONObject.optNullableLong(name: String): Long? {
+        if (!has(name) || isNull(name)) return null
+        return optLong(name).takeIf { it > 0L }
+    }
+
+    private fun JSONObject.optNullableInt(name: String): Int? {
+        if (!has(name) || isNull(name)) return null
+        return optInt(name).takeIf { it >= 0 }
     }
 
     private fun sessionHeaders(sessionId: String): Map<String, String> = mapOf("X-Session-Id" to sessionId)

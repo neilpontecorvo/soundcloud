@@ -1,4 +1,9 @@
 <resources>
     <string name="app_name">Private Cloud TV</string>
     <item name="login_primary_action" type="id" />
+    <item name="btnHome" type="id" />
+    <item name="btnSearch" type="id" />
+    <item name="btnLibrary" type="id" />
+    <item name="btnPlayer" type="id" />
+    <item name="btnSettings" type="id" />
 </resources>
