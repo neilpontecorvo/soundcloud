@@ -296,7 +296,7 @@ This confirms:
 
 ## 11. Current Next Step
 **Single-task focus:**
-The requested UI implementation goal is complete. After the final commit/push verification, restart the Fire TV once so Fire OS refreshes the installed `SOUNDCLOUD` launcher label and supplied icon/banner from its cache. Future work requires a new scoped task.
+The requested UI implementation goal is committed and pushed. Restart the Fire TV once so Fire OS refreshes the installed `SOUNDCLOUD` launcher label and supplied icon/banner from its cache. Future work requires a new scoped task.
 
 ---
 
@@ -1089,12 +1089,12 @@ Expected on-device outcomes:
   - Live normalized provider validation confirms t500x500 artwork, waveform metadata, real playlist tracks, and a multi-item playlist response; no provider credential or token was printed or moved to Android.
 
 ### Entry 035
-- Status: implementation, automated validation, final APK installation, and physical Fire TV validation complete; Git handoff pending at the time this entry was written.
+- Status: completed, committed, pushed, and remotely verified.
 - Task title: Implement the New SoundCloud Fire TV UI/UX End-to-End.
 - Active agent: Codex (single coding agent).
 - Approval mode: low-friction/auto-accept for in-scope repository edits and validation.
 - Start SHA: `da306562d9b2dcf2481548cb1871ec7b70f9476e`.
-- End/implementation commit SHA: pending final commit creation.
+- End/implementation commit SHA: `5ed6e034c90b7065c24f76df7ad19965adf65be3`.
 - Branch: `main`.
 - Design references used: all five 1920 × 1080 PNG exports plus the supplied Figma and PDF under `docs/design/firetv-ux-redesign/`.
 - Implementation summary:
@@ -1187,5 +1187,10 @@ Expected on-device outcomes:
   - Legacy fullscreen flags compile and work on this Fire OS target but remain deprecated for a future platform-maintenance task.
   - The four npm audit advisories predate this task and require a separately scoped dependency upgrade/regression pass.
   - Appstore-only background/feature images are irrelevant to this private sideloaded app.
-- Exact next step: finish secret-safe Git review, commit/push/remote verification, then tell the user it is safe to restart the Fire TV to refresh launcher cache.
-- Commit SHA and push verification: pending final Git handoff.
+- Exact next step: the user can restart the Fire TV to refresh its launcher cache; no implementation work remains in this goal.
+- Commit SHA and push verification:
+  - Implementation commit: `5ed6e034c90b7065c24f76df7ad19965adf65be3` (`feat(firetv): implement 1920x1080 UX redesign`).
+  - Push to `origin/main` succeeded (`da30656..5ed6e03`).
+  - Post-push `git fetch --prune origin` succeeded.
+  - Local `HEAD` and `origin/main` both resolved to `5ed6e034c90b7065c24f76df7ad19965adf65be3` with divergence `0 0`.
+  - This exact handoff record is included in the immediate follow-up worklog-only commit.
