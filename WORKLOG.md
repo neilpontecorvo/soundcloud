@@ -1194,3 +1194,122 @@ Expected on-device outcomes:
   - Post-push `git fetch --prune origin` succeeded.
   - Local `HEAD` and `origin/main` both resolved to `5ed6e034c90b7065c24f76df7ad19965adf65be3` with divergence `0 0`.
   - This exact handoff record is included in the immediate follow-up worklog-only commit.
+
+### Entry 036
+- Status: completed, validated on the physical Fire TV, committed.
+- Task title: Private Track Playback Repair — restore full-length private-track playback against SoundCloud's current stream response.
+- Active agent: Claude (single coding agent).
+- Approval mode: low-friction/auto-accept for in-scope repository edits and validation.
+- Start SHA: `56787c5aa82fdb32fe0615a24fe624648d018c62`.
+- Branch: `main`.
+- Reported symptom: Fire TV correctly identified the item as private, logged `PrivateTrackLoad: trackId=2379107141, backendProxy=true`, then failed with `PrivateTrackError: trackId=2379107141, what=1, extra=-2147483648`. `GET /v1/tracks/2379107141/stream` returned HTTP 502 `provider_upstream_error` / "Provider did not return an approved full-length HTTP stream."
+
+#### Root cause
+- `TrackPlaybackService` required `http_mp3_128_url` from `GET /tracks/{id}/streams`. SoundCloud no longer returns that field.
+- Read-only inspection of the live authenticated response (no token or signed URL printed or logged) showed the current field set for private tracks `2379107141`, `2303298242` and `2381876697` is identical and contains only:
+  - `hls_mp3_128_url` — `https` on `api.soundcloud.com`, query `[secret_token]`
+  - `hls_aac_160_url` — `https` on `api.soundcloud.com`, query `[secret_token]`
+  - `preview_mp3_128_url` — `https` on `api.soundcloud.com`, query `[secret_token]`
+- The track object's `stream_url` now resolves to a `/preview` path only. `access=playable`, `sharing=private`.
+- With no `http_mp3_128_url`, the selection check failed and every private track 502'd. The only full-length variants are HLS.
+
+#### Stream-shape findings that drove the design (measured, not assumed)
+- `hls_aac_160_url` → 302 → `playback.media-streaming.soundcloud.cloud` `playlist.m3u8`, `EXT-X-VERSION:7`, `EXT-X-MAP` init segment plus 25 `.m4s` fragments (fMP4, `styp`/`sidx`/`moof`/`mdat`).
+- `hls_mp3_128_url` → 302 → `cf-hls-media.sndcdn.com` `playlist.m3u8`, `EXT-X-VERSION:6`, no init segment, 28 raw MPEG-1 Layer III segments.
+- Both variants' parts report exact `Content-Length` via `HEAD` and support per-part `Range` (206), so an exact byte-offset map is buildable:
+  - MP3: HEAD sum `3999868` == GET sum `3999868`; concatenation yields 9570 MPEG frames, **0 unparsed bytes**, decoded 249.99 s vs API duration 249920 ms.
+  - AAC: HEAD sum `5049976` == GET sum `5049976`; concatenation parses cleanly to EOF.
+- Both concatenations decode as valid full-length audio (`ffprobe`: mp3 249.920 s @128 kbps; aac 249.966 s @161 kbps).
+- Manifest and part requests succeed **unauthenticated** — the delivery URLs are already signed — so no OAuth bearer is needed past `api.soundcloud.com`.
+
+#### Implementation
+- Added `services/api/src/content/hls-media-plan.ts`:
+  - Quality-ordered variant ladder, preview fields explicitly excluded.
+  - `parseMediaPlaylist` — rejects master playlists and encrypted playlists, resolves `EXT-X-MAP` plus every segment URI, and runs **each** resolved URI through the approved-media-host check (a playlist is untrusted input).
+  - `toMediaParts` / `planExpiryMs` — byte-offset map from exact HEAD lengths; plan lifetime capped at a flat 5 minutes, and additionally bounded by the signed URL `expires` value minus a 60 s safety margin **when that parameter is present**. Note the MP3 delivery URLs carry only `Policy`/`Signature`/`Key-Pair-Id` and no `expires`, so on the default path only the 5 minute cap applies; the AAC `playback.media-streaming.soundcloud.cloud` URLs do carry `expires`.
+  - `mapWithConcurrency` — part measurement is bounded to 12 in-flight HEAD requests while preserving playlist order.
+  - `resolveByteRange` — full single-range semantics (`N-M`, `N-`, `-S`), returning undefined for unsatisfiable ranges.
+  - `createConcatenatedStream` — streams only the overlapping parts, slices the boundary parts with their own byte range, prefetches one part deep, and never buffers the whole track.
+- Rewrote `services/api/src/content/track-playback-service.ts` to resolve the HLS media playlist server-side and republish it to the Fire TV as **one progressive, range-addressable response**:
+  - No `Range` → 200 with exact `Content-Length` + `Accept-Ranges: bytes`.
+  - `Range` → 206 with exact `Content-Range`; range past EOF → 416 with `bytes */total`.
+  - Warm plan cache keyed by session + track so a seek reuses the resolved playlist instead of re-resolving; a stale entry is dropped on the miss path rather than held for the life of the process.
+  - Legacy `http_mp3_128_url` progressive path retained unchanged for compatibility.
+- The Android client was **not modified**. `ensureNativePlayerHost` still opens `/v1/tracks/:id/stream` with only the opaque `X-Session-Id` and still receives seekable progressive audio.
+
+#### Variant ordering decision (empirical)
+- `hls_aac_160` is the higher-bitrate stream, so it was implemented first in the ladder and tested on the device.
+- On the physical AFTKM the AAC fMP4 prepared but MediaPlayer read only the first fragment: `PrivateTrackPrepared: trackId=2380056603, durationMs=10008` for a 3:52 track, and the UI pinned at `0:10 / 0:10` and would not play through. Native MediaPlayer cannot derive total duration from the chained per-fragment `sidx` layout.
+- The ladder was therefore reordered to `hls_mp3_128` → `hls_aac_160` → `http_mp3_128`: highest-quality **supported** variant first. The MP3 concatenation is a plain constant-bitrate MPEG stream, which the same MediaPlayer path handles correctly. AAC remains the fallback for tracks where SoundCloud omits the MP3 variant. The reason is recorded in a comment on `MEDIA_VARIANTS`.
+
+#### Security model (preserved)
+- `PROVIDER_CLIENT_SECRET` and access/refresh tokens remain server-side; the Fire TV still receives only its opaque backend session id.
+- The OAuth bearer is sent **only** to `api.soundcloud.com`. Manifest, HEAD and part requests carry no `Authorization` header — asserted in tests.
+- Approved-host validation is unchanged in scope (`*.sndcdn.com`, `*.soundcloud.cloud`) and is now additionally applied to the redirect target, every segment URI and the `EXT-X-MAP` URI.
+- No signed URL, `secret_token`, `Policy`, `Signature`, `Key-Pair-Id` or bearer is echoed to the client — asserted in tests. `Cache-Control: private, no-store` retained.
+- WebView allowlists, controlled-host rules, SSL policy and the JavaScript interface were not touched.
+
+#### Files changed/added
+- `services/api/src/content/hls-media-plan.ts` (added)
+- `services/api/src/content/track-playback-service.ts`
+- `services/api/test/track-playback-service.test.ts`
+- `WORKLOG.md`
+
+#### Tests added/updated
+- Current HLS response republished as one progressive response with exact `Content-Length`, init segment leading.
+- MP3/HLS preferred over AAC/HLS, with the device reason recorded; only the MP3 variant is resolved.
+- AAC/HLS used as the fallback when the MP3 variant is absent.
+- Range requests answered from the byte map: single-part slice, three-part spanning slice, `bytes=0-` → 206, suffix range, and only overlapping parts fetched.
+- Range past EOF → 416; malformed range → `invalid_request`.
+- Preview-only stream response rejected instead of played.
+- Segment on an unapproved host rejected; `EXT-X-MAP` on an unapproved host rejected; redirect to an unapproved host rejected.
+- Part without an exact length rejected rather than mis-declared.
+- Credential stripping and signed-URL non-disclosure.
+- A 400-segment playlist is measured with at most 12 concurrent HEAD requests, still in parallel and still in playlist order.
+- Warm plan serves seeks without re-resolving.
+- Legacy progressive proxy behaviour retained (pre-existing test kept).
+
+#### Validation results
+- `npm --workspace @soundcloud-private/api test`: passed 20/20.
+- `npm run check:api`: passed.
+- `npm --workspace @soundcloud-private/api run build`: passed.
+- `./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug -PapiBaseUrl=http://192.168.1.167:4000` with pinned OpenJDK 17.0.18: BUILD SUCCESSFUL.
+- `adb install -r .../app-debug.apk`: `Success`.
+- Backend restarted via `~/Desktop/Start-SoundCloud-FireTV.command` with `.env.firetv.local`; `curl /health` returned `ok` on both `127.0.0.1:4000` and `192.168.1.167:4000`.
+- Live endpoint checks against the running backend:
+  - `2379107141`: 200, `audio/mpeg`, `content-length: 3999868`, body exactly 3999868 bytes, ffprobe 249.920 s (API 249920 ms).
+  - `2380056603`: 200, `audio/mpeg`, `content-length: 3718163`, ffprobe 232.320 s (API 232320 ms).
+  - `Range: bytes=0-` → 206 `bytes 0-5049975/5049976`; `Range: bytes=2000000-2000999` → 206, 1000 bytes, byte-identical to the same offset of the whole file; `Range: bytes=99999999-` → 416 `bytes */5049976`.
+  - Response headers contained no `secret_token`, `Signature`, `Policy`, `Key-Pair-Id` or bearer.
+
+#### Physical Fire TV results (192.168.1.168:5555, AFTKM, 1920 × 1080)
+- Track `2379107141` ("Lets Werk (1)"): `PrivateTrackLoad` → `PrivateTrackPrepared: durationMs=249966`; Player showed `4:09` and played through. This is the exact track from the bug report; the previous failure was `PrivateTrackError what=1 extra=-2147483648`.
+- Second private track `2380056600` ("ANELO - Touch Me (Afro House Edit)"): `PrivateTrackPrepared: durationMs=216999`; Player showed `3:36`, PLAYING, labelled `PRIVATE ACCOUNT TRACK`.
+- Full duration: confirmed on both (249966 ms vs API 249920 ms; 216999 ms vs API 216960 ms).
+- Play/Pause: PLAYING → PAUSED → PLAYING confirmed via media keys with the mini-player state synchronized.
+- Seek: deterministic paused test moved 2:26 → 2:16 (REWIND, −10 s) → 2:26 (FAST_FORWARD, +10 s). Seeking during playback also advanced correctly and playback continued from the new position.
+- Next/Previous: queue index moved 6 → 7 → 6 → 3 with the correct track loading at each step.
+- Public track still plays: `NEXT` reached public track `2360118929` ("ANELO PONTECORVO LIVE JULY 10th 2026"), which loaded through the unchanged WebView widget path and played (`1:56:38` duration). No `PrivateTrackLoad` was emitted for it, confirming the public path is untouched.
+- No `PrivateTrackError`, `PrivateTrackSetupFailed`, FATAL exception or ANR appeared in the device log during the session.
+- The user independently confirmed on the device that private tracks play and that seek works.
+
+#### Screenshot evidence (local, under gitignored `artifacts/`)
+- `artifacts/private-track-repair/11-target-prepared.png`
+- `artifacts/private-track-repair/12-playing.png`
+- `artifacts/private-track-repair/13-seek-forward.png`
+- `artifacts/private-track-repair/17-seek-paused.png`
+- `artifacts/private-track-repair/18-next.png`
+- `artifacts/private-track-repair/19-second-private.png`
+
+#### Longest-track check
+- The Library Tracks rail contains `2283620006` ("ANELO LIVE STUDIO MIX PART 1 - MARCH 2026"), duration 5997871 ms (~100 minutes), which resolves to roughly 660 segments. The first implementation measured every part in a single unbounded `Promise.all`, so that track opened hundreds of simultaneous CDN sockets and any one HEAD exceeding the 8 s request timeout would have 502'd the whole stream.
+- Measurement is now bounded to 12 in-flight HEAD requests. Verified against the running backend: cold resolve returned HTTP 206 with time-to-first-byte 3.50 s, warm resolve 0.03 s, and a full read returned HTTP 200 with `content-length: 95966353` (~96 MB) matching the bytes received.
+
+#### Known limitations / follow-ups
+- Resolving a plan costs one `HEAD` per part (28 for a 4 minute track, ~660 for the 100 minute set), bounded to 12 concurrent. It happens once per session+track within the plan TTL.
+- If a signed URL expires mid-body on an unusually long stream, the current behaviour is a failed part rather than a mid-stream re-resolve. The 5 minute plan TTL is bounded well inside the signature lifetime to avoid this.
+- `hls_aac_160` is higher quality but cannot be used until the client can read fMP4 duration; moving to a player with proper fMP4 support (or server-side remuxing) would be a separately scoped task.
+- The four pre-existing npm audit advisories still predate this task and remain out of scope.
+
+#### Out of scope and untouched
+- OAuth/pairing, session persistence, Home, Library, Search, public-track widget playback, launcher/banner, D-pad behaviour, UI layout and WebView hardening were not modified.
